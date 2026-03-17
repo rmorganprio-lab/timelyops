@@ -20,7 +20,7 @@ const methodColors = {
 }
 
 const emptyPayment = {
-  client_id: '', invoice_id: '', amount: '', method: 'cash', date: '', notes: '', reference: '',
+  client_id: '', invoice_id: '', job_id: '', amount: '', method: 'cash', date: '', notes: '', reference: '',
 }
 
 export default function Payments({ user }) {
@@ -35,6 +35,7 @@ export default function Payments({ user }) {
   const [form, setForm] = useState(emptyPayment)
   const [selectedPayment, setSelectedPayment] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [clientJobs, setClientJobs] = useState([])
   const [filter, setFilter] = useState({ method: 'all', client: 'all', period: 'all' })
   const [search, setSearch] = useState('')
 
@@ -99,8 +100,16 @@ export default function Payments({ user }) {
 
   // ── Modal handlers ──
 
+  async function loadClientJobs(clientId) {
+    if (!clientId) { setClientJobs([]); return }
+    const { data } = await supabase.from('jobs').select('id, title, date, price')
+      .eq('client_id', clientId).eq('status', 'completed').order('date', { ascending: false })
+    setClientJobs(data || [])
+  }
+
   function openAdd() {
     setForm({ ...emptyPayment, date: today })
+    setClientJobs([])
     setSelectedPayment(null)
     setModal('add')
   }
@@ -109,9 +118,11 @@ export default function Payments({ user }) {
     setSelectedPayment(payment)
     setForm({
       client_id: payment.client_id, invoice_id: payment.invoice_id || '',
+      job_id: payment.job_id || '',
       amount: payment.amount, method: payment.method, date: payment.date,
       notes: payment.notes || '', reference: payment.reference || '',
     })
+    loadClientJobs(payment.client_id)
     setModal('edit')
   }
 
@@ -128,6 +139,7 @@ export default function Payments({ user }) {
       org_id: user.org_id,
       client_id: form.client_id,
       invoice_id: form.invoice_id || null,
+      job_id: form.job_id || null,
       amount: Number(form.amount),
       method: form.method,
       date: form.date,
@@ -353,7 +365,7 @@ export default function Payments({ user }) {
             {/* Client */}
             <div>
               <label className="block text-xs font-medium text-stone-500 mb-1.5">Client *</label>
-              <select value={form.client_id} onChange={e => setForm(f => ({...f, client_id: e.target.value, invoice_id: ''}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
+              <select value={form.client_id} onChange={e => { const id = e.target.value; setForm(f => ({...f, client_id: id, invoice_id: '', job_id: ''})); loadClientJobs(id) }} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                 <option value="">Select client...</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -366,6 +378,21 @@ export default function Payments({ user }) {
                 <select value={form.invoice_id} onChange={e => setForm(f => ({...f, invoice_id: e.target.value}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                   <option value="">No invoice (general payment)</option>
                   {clientInvoices.map(i => <option key={i.id} value={i.id}>#{i.invoice_number} — ${Number(i.total).toFixed(2)}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Job (optional) */}
+            {form.client_id && (
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5">For job (optional)</label>
+                <select value={form.job_id} onChange={e => setForm(f => ({...f, job_id: e.target.value}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                  <option value="">No specific job</option>
+                  {clientJobs.map(j => (
+                    <option key={j.id} value={j.id}>
+                      {j.title} — {j.date}{j.price ? ` — $${Number(j.price).toFixed(2)}` : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
