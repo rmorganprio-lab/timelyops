@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { todayInTimezone, addDays, currentHourInTimezone, getTimezoneAbbr, formatTime } from '../lib/timezone'
 
@@ -169,7 +170,7 @@ export default function Dashboard({ user }) {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-stone-900">Today's Schedule by Team</h2>
-          <a href="/schedule" className="text-sm text-emerald-700 hover:text-emerald-800 font-medium">View full schedule →</a>
+          <Link to="/schedule" className="text-sm text-emerald-700 hover:text-emerald-800 font-medium">View full schedule →</Link>
         </div>
 
         {data.todayJobs.length === 0 ? (
@@ -180,7 +181,7 @@ export default function Dashboard({ user }) {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {/* Worker columns */}
             {data.workers.filter(w => byWorker[w.id]?.length > 0).map(worker => (
-              <a key={worker.id} href="/schedule" className="bg-white rounded-2xl border border-stone-200 overflow-hidden hover:border-emerald-200 hover:shadow-sm transition-all block">
+              <Link key={worker.id} to="/schedule" className="bg-white rounded-2xl border border-stone-200 overflow-hidden hover:border-emerald-200 hover:shadow-sm transition-all block">
                 {/* Worker header */}
                 <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -220,7 +221,7 @@ export default function Dashboard({ user }) {
                     </div>
                   ))}
                 </div>
-              </a>
+              </Link>
             ))}
 
             {/* Unassigned jobs */}
@@ -270,7 +271,7 @@ export default function Dashboard({ user }) {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-red-800">Overdue Payments</h2>
-            <a href="/payments" className="text-sm text-red-600 hover:text-red-700 font-medium">View all →</a>
+            <Link to="/payments" className="text-sm text-red-600 hover:text-red-700 font-medium">View all →</Link>
           </div>
           <div className="bg-red-50 rounded-2xl border border-red-200 divide-y divide-red-100">
             {data.overdueInvoices.map(inv => (
@@ -293,7 +294,7 @@ export default function Dashboard({ user }) {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-stone-900">Recent Payments</h2>
-            <a href="/payments" className="text-sm text-emerald-700 hover:text-emerald-800 font-medium">View all →</a>
+            <Link to="/payments" className="text-sm text-emerald-700 hover:text-emerald-800 font-medium">View all →</Link>
           </div>
           <div className="bg-white rounded-2xl border border-stone-200 divide-y divide-stone-100">
             {data.recentPayments.map(p => (
