@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import CSVImport from '../components/CSVImport'
+import { WORKER_TEMPLATE, validateWorkerRows, normalizePhone } from '../lib/csv'
 
 export default function Workers({ user }) {
   const [workers, setWorkers] = useState([])
@@ -10,6 +12,7 @@ export default function Workers({ user }) {
   const [saving, setSaving] = useState(false)
   const [skillInput, setSkillInput] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [showImport, setShowImport] = useState(false)
 
   const orgId = user?.org_id
 
@@ -114,6 +117,41 @@ export default function Workers({ user }) {
     loadWorkers()
   }
 
+  async function handleWorkerImport(rows) {
+    let count = 0
+    let skipped = 0
+
+    for (const row of rows) {
+      if (row.phone) {
+        const { data: existing } = await supabase
+          .from('users')
+          .select('id')
+          .eq('org_id', orgId)
+          .eq('phone', normalizePhone(row.phone))
+          .limit(1)
+        if (existing?.length > 0) { skipped++; continue }
+      }
+
+      const newId = crypto.randomUUID()
+      const { error } = await supabase.from('users').insert({
+        id: newId,
+        org_id: orgId,
+        name: row.name,
+        phone: normalizePhone(row.phone) || null,
+        email: row.email || null,
+        role: (row.role || 'worker').toLowerCase(),
+        availability: 'available',
+        skills: row.skills ? row.skills.split(',').map(s => s.trim()).filter(Boolean) : [],
+        auth_linked: false,
+      })
+
+      if (!error) count++
+    }
+
+    loadWorkers()
+    return { success: true, count, skipped }
+  }
+
   function addSkill() {
     const skill = skillInput.trim()
     if (skill && !form.skills.includes(skill)) {
@@ -138,10 +176,16 @@ export default function Workers({ user }) {
           <h1 className="text-2xl font-bold text-stone-900">Workers</h1>
           <p className="text-stone-500 text-sm mt-1">{workers.length} team members</p>
         </div>
-        <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Worker
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import CSV
+          </button>
+          <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Worker
+          </button>
+        </div>
       </div>
 
       {/* Worker Grid */}
@@ -309,6 +353,17 @@ export default function Workers({ user }) {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImport && (
+        <CSVImport
+          onClose={() => { setShowImport(false); loadWorkers() }}
+          onImport={handleWorkerImport}
+          templateDef={WORKER_TEMPLATE}
+          validateRows={validateWorkerRows}
+          entityName="workers"
+        />
       )}
 
       {/* Add/Edit Worker Modal */}

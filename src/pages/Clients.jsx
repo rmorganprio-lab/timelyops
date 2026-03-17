@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import CSVImport from '../components/CSVImport'
+import { CLIENT_TEMPLATE, validateClientRows, normalizePhone } from '../lib/csv'
 
 const emptyClient = {
   name: '', email: '', phone: '', address: '', notes: '', tags: [], status: 'active',
@@ -26,6 +28,7 @@ export default function Clients({ user }) {
   const [saving, setSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [tagInput, setTagInput] = useState('')
+  const [showImport, setShowImport] = useState(false)
 
   const orgId = user?.org_id
 
@@ -183,6 +186,64 @@ export default function Clients({ user }) {
     }
   }
 
+  async function handleClientImport(rows) {
+    let count = 0
+    let skipped = 0
+
+    for (const row of rows) {
+      if (row.phone || row.email) {
+        const { data: existing } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('org_id', orgId)
+          .or(`phone.eq.${normalizePhone(row.phone)},email.eq.${row.email}`)
+          .limit(1)
+        if (existing?.length > 0) { skipped++; continue }
+      }
+
+      const { data: newClient } = await supabase.from('clients').insert({
+        org_id: orgId,
+        name: row.name,
+        phone: normalizePhone(row.phone) || null,
+        email: row.email || null,
+        address: row.address || null,
+        notes: row.notes || null,
+        tags: row.tags ? row.tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : [],
+        status: (row.status || 'active').toLowerCase(),
+      }).select().single()
+
+      if (newClient) {
+        count++
+        const hasProperty = row.property_type || row.bedrooms || row.bathrooms || row.alarm_code || row.pet_details || row.parking || row.key_lockbox || row.supplies_location || row.special_notes
+        if (hasProperty) {
+          await supabase.from('client_properties').insert({
+            client_id: newClient.id,
+            org_id: orgId,
+            property_type: (row.property_type || 'residential').toLowerCase(),
+            bedrooms: row.bedrooms ? Number(row.bedrooms) : null,
+            bathrooms: row.bathrooms ? Number(row.bathrooms) : null,
+            square_footage: row.square_footage ? Number(row.square_footage) : null,
+            alarm_code: row.alarm_code || null,
+            key_info: row.key_lockbox || null,
+            pet_details: row.pet_details || null,
+            parking_instructions: row.parking || null,
+            supply_location: row.supplies_location || null,
+            special_notes: row.special_notes || null,
+          })
+        }
+
+        await supabase.from('client_timeline').insert({
+          org_id: orgId, client_id: newClient.id,
+          event_type: 'note', summary: 'Client imported via CSV',
+          created_by: user.id,
+        })
+      }
+    }
+
+    loadClients()
+    return { success: true, count, skipped }
+  }
+
   function addTag() {
     const tag = tagInput.trim().toLowerCase()
     if (tag && !form.tags.includes(tag)) {
@@ -207,10 +268,16 @@ export default function Clients({ user }) {
           <h1 className="text-2xl font-bold text-stone-900">Clients</h1>
           <p className="text-stone-500 text-sm mt-1">{clients.length} total clients</p>
         </div>
-        <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Client
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import CSV
+          </button>
+          <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Client
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter */}
@@ -392,6 +459,17 @@ export default function Clients({ user }) {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImport && (
+        <CSVImport
+          onClose={() => { setShowImport(false); loadClients() }}
+          onImport={handleClientImport}
+          templateDef={CLIENT_TEMPLATE}
+          validateRows={validateClientRows}
+          entityName="clients"
+        />
       )}
 
       {/* Add/Edit Client Modal */}
