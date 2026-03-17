@@ -17,12 +17,12 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Set a timeout — if loading takes more than 5 seconds, reset
+    // If still loading after 5 seconds, give up and show the login page
     const timeout = setTimeout(() => {
       if (loading) {
-        supabase.auth.signOut()
-        localStorage.clear()
-        window.location.reload()
+        setSession(null)
+        setUser(null)
+        setLoading(false)
       }
     }, 5000)
 
