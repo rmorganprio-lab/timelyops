@@ -100,16 +100,19 @@ export default function Payments({ user }) {
 
   // ── Modal handlers ──
 
-  async function loadClientJobs(clientId) {
-    if (!clientId) { setClientJobs([]); return }
-    const { data } = await supabase.from('jobs').select('id, title, date, price')
-      .eq('client_id', clientId).eq('status', 'completed').order('date', { ascending: false })
-    setClientJobs(data || [])
-  }
+  useEffect(() => {
+    if (form.client_id) {
+      supabase.from('jobs').select('id, title, date, price, status')
+        .eq('client_id', form.client_id).in('status', ['completed', 'in_progress', 'scheduled'])
+        .order('date', { ascending: false })
+        .then(({ data }) => setClientJobs(data || []))
+    } else {
+      setClientJobs([])
+    }
+  }, [form.client_id])
 
   function openAdd() {
     setForm({ ...emptyPayment, date: today })
-    setClientJobs([])
     setSelectedPayment(null)
     setModal('add')
   }
@@ -122,7 +125,6 @@ export default function Payments({ user }) {
       amount: payment.amount, method: payment.method, date: payment.date,
       notes: payment.notes || '', reference: payment.reference || '',
     })
-    loadClientJobs(payment.client_id)
     setModal('edit')
   }
 
@@ -365,7 +367,7 @@ export default function Payments({ user }) {
             {/* Client */}
             <div>
               <label className="block text-xs font-medium text-stone-500 mb-1.5">Client *</label>
-              <select value={form.client_id} onChange={e => { const id = e.target.value; setForm(f => ({...f, client_id: id, invoice_id: '', job_id: ''})); loadClientJobs(id) }} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
+              <select value={form.client_id} onChange={e => setForm(f => ({...f, client_id: e.target.value, invoice_id: '', job_id: ''}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
                 <option value="">Select client...</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -383,7 +385,7 @@ export default function Payments({ user }) {
             )}
 
             {/* Job (optional) */}
-            {form.client_id && (
+            {clientJobs.length > 0 && (
               <div>
                 <label className="block text-xs font-medium text-stone-500 mb-1.5">For job (optional)</label>
                 <select value={form.job_id} onChange={e => setForm(f => ({...f, job_id: e.target.value}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">
