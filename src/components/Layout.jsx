@@ -43,7 +43,9 @@ export default function Layout({ user }) {
 
   async function handleSignOut() {
     await supabase.auth.signOut()
+    const savedPhone = localStorage.getItem('allbookd_phone')
     localStorage.clear()
+    if (savedPhone) localStorage.setItem('allbookd_phone', savedPhone)
     window.location.reload()
   }
 

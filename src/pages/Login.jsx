@@ -164,7 +164,7 @@ export default function Login() {
           Having trouble?{' '}
           <button
             type="button"
-            onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.href = '/' }}
+            onClick={() => { const savedPhone = localStorage.getItem('allbookd_phone'); localStorage.clear(); sessionStorage.clear(); if (savedPhone) localStorage.setItem('allbookd_phone', savedPhone); window.location.href = '/' }}
             className="text-stone-500 hover:text-stone-700 underline"
           >
             Clear &amp; Reload
