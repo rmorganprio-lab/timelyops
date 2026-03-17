@@ -180,7 +180,7 @@ export default function Dashboard({ user }) {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {/* Worker columns */}
             {data.workers.filter(w => byWorker[w.id]?.length > 0).map(worker => (
-              <div key={worker.id} className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+              <a key={worker.id} href="/schedule" className="bg-white rounded-2xl border border-stone-200 overflow-hidden hover:border-emerald-200 hover:shadow-sm transition-all block">
                 {/* Worker header */}
                 <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -196,7 +196,10 @@ export default function Dashboard({ user }) {
                       <div className="text-[10px] text-stone-400 capitalize">{worker.role === 'ceo' ? 'Owner' : worker.role}</div>
                     </div>
                   </div>
-                  <div className="text-xs text-stone-400">{byWorker[worker.id].length} jobs</div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-xs text-stone-400">{byWorker[worker.id].length} jobs</div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-stone-300"><polyline points="9 18 15 12 9 6"/></svg>
+                  </div>
                 </div>
 
                 {/* Worker's jobs */}
@@ -217,7 +220,7 @@ export default function Dashboard({ user }) {
                     </div>
                   ))}
                 </div>
-              </div>
+              </a>
             ))}
 
             {/* Unassigned jobs */}
@@ -363,6 +366,7 @@ function JobCard({ job, isNext, tz, user, onUpdate }) {
     await supabase.from('payments').insert({
       org_id: user.org_id,
       client_id: job.client_id,
+      job_id: job.id,
       amount: Number(payAmount),
       method: payMethod,
       date: todayInTimezone(user?.organizations?.settings?.timezone || 'America/Los_Angeles'),

@@ -37,6 +37,10 @@ export default function Schedule({ user }) {
   const [showRecurringOptions, setShowRecurringOptions] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [showDeleteRecurring, setShowDeleteRecurring] = useState(false)
+  const [paymentModal, setPaymentModal] = useState(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [payMethod, setPayMethod] = useState('cash')
+  const [paymentSaving, setPaymentSaving] = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -261,12 +265,43 @@ export default function Schedule({ user }) {
   // ── Check-in ──
 
   async function handleCheckIn(job, type) {
-    const updates = type === 'arrive'
-      ? { status: 'in_progress', arrived_at: new Date().toISOString() }
-      : { status: 'completed', completed_at: new Date().toISOString() }
-    await supabase.from('jobs').update(updates).eq('id', job.id)
+    if (type === 'arrive') {
+      await supabase.from('jobs').update({ status: 'in_progress', arrived_at: new Date().toISOString() }).eq('id', job.id)
+      loadAll()
+      if (selectedJob?.id === job.id) setSelectedJob({ ...job, status: 'in_progress', arrived_at: new Date().toISOString() })
+    } else {
+      await supabase.from('jobs').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', job.id)
+      loadAll()
+      if (selectedJob?.id === job.id) setSelectedJob({ ...job, status: 'completed', completed_at: new Date().toISOString() })
+      setPayAmount(job.price ? String(job.price) : '')
+      setPayMethod('cash')
+      setPaymentModal(job)
+    }
+  }
+
+  async function handleJobPayment() {
+    if (!paymentModal || !payAmount || Number(payAmount) <= 0) return
+    setPaymentSaving(true)
+    const tz_date = todayInTimezone(tz)
+    await supabase.from('payments').insert({
+      org_id: user.org_id,
+      client_id: paymentModal.client_id,
+      job_id: paymentModal.id,
+      amount: Number(payAmount),
+      method: payMethod,
+      date: tz_date,
+      notes: `Payment for ${paymentModal.title}`,
+    })
+    await supabase.from('client_timeline').insert({
+      org_id: user.org_id,
+      client_id: paymentModal.client_id,
+      event_type: 'payment',
+      summary: `$${Number(payAmount).toFixed(2)} received via ${payMethod}`,
+      created_by: user.id,
+    })
+    setPaymentSaving(false)
+    setPaymentModal(null)
     loadAll()
-    if (selectedJob?.id === job.id) setSelectedJob({ ...job, ...updates })
   }
 
   // ── Conflict detection ──
@@ -442,6 +477,55 @@ export default function Schedule({ user }) {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* ── Payment after completion modal ── */}
+      {paymentModal && (
+        <Modal onClose={() => setPaymentModal(null)}>
+          <div className="text-center mb-6">
+            <div className="text-emerald-600 text-lg font-medium mb-1">✓ Job completed</div>
+            <div className="text-sm text-stone-500">{paymentModal.title} — {clientName(paymentModal.client_id)}</div>
+          </div>
+
+          <div className="text-center mb-4">
+            <div className="text-sm font-medium text-stone-700">Did you receive payment?</div>
+          </div>
+
+          <div className="space-y-3">
+            {payAmount === '__no__' ? (
+              <div className="py-2.5 text-center text-stone-500 text-sm">No payment recorded.</div>
+            ) : (
+              <>
+                <div>
+                  <div className="text-xs text-stone-500 mb-1">Amount received {paymentModal.price ? `(Job total: $${Number(paymentModal.price).toFixed(2)})` : ''}</div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
+                    <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" step="0.01" className="w-full pl-7 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+                  </div>
+                  {paymentModal.price && payAmount && Number(payAmount) > 0 && Number(payAmount) < Number(paymentModal.price) && (
+                    <div className="text-xs text-amber-600 mt-1">Partial payment — ${(Number(paymentModal.price) - Number(payAmount)).toFixed(2)} remaining</div>
+                  )}
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {['cash', 'venmo', 'zelle', 'card', 'check'].map(m => (
+                    <button key={m} onClick={() => setPayMethod(m)} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors capitalize ${
+                      payMethod === m ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200' : 'bg-stone-50 text-stone-400 border border-stone-200'
+                    }`}>{m}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-2 mt-6 pt-4 border-t border-stone-200">
+            <button onClick={() => setPaymentModal(null)} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">
+              No payment
+            </button>
+            <button onClick={handleJobPayment} disabled={paymentSaving || !payAmount || Number(payAmount) <= 0} className="flex-1 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors">
+              {paymentSaving ? 'Saving...' : 'Save Payment'}
+            </button>
+          </div>
         </Modal>
       )}
 
