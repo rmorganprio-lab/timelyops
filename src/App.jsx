@@ -136,7 +136,7 @@ function App() {
           <div className="text-stone-600 text-lg mb-2">Account not found</div>
           <p className="text-stone-400 text-sm">Your phone number is not linked to any organization.</p>
           <button 
-            onClick={() => supabase.auth.signOut()}
+            onClick={() => { localStorage.clear(); supabase.auth.signOut() }}
             className="mt-4 px-4 py-2 bg-stone-200 rounded-lg text-stone-600 hover:bg-stone-300"
           >
             Sign out
