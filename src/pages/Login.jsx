@@ -67,7 +67,7 @@ export default function Login() {
               <path d="M9 16l2 2 4-4"/>
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-stone-900">AllBookd</h1>
+          <h1 className="text-2xl font-bold text-stone-900">TimelyOps</h1>
           <p className="text-stone-500 text-sm mt-1">Sign in with your phone number</p>
         </div>
 
