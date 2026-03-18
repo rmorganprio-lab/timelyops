@@ -21,6 +21,7 @@ export default function Quotes({ user }) {
 
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
+  const [workers, setWorkers] = useState([])
   const [serviceTypes, setServiceTypes] = useState([])
   const [pricingMatrix, setPricingMatrix] = useState([])
   const [loading, setLoading] = useState(true)
@@ -29,6 +30,14 @@ export default function Quotes({ user }) {
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+
+  // Schedule form state
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [scheduleDuration, setScheduleDuration] = useState(120)
+  const [scheduleFrequency, setScheduleFrequency] = useState('one_time')
+  const [scheduleWorker, setScheduleWorker] = useState('')
 
   // Form state
   const [formClient, setFormClient] = useState('')
@@ -44,16 +53,18 @@ export default function Quotes({ user }) {
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    const [quotesRes, clientsRes, typesRes, matrixRes] = await Promise.all([
+    const [quotesRes, clientsRes, typesRes, matrixRes, workersRes] = await Promise.all([
       supabase.from('quotes').select('*, clients(name, phone, email, address), quote_line_items(*)').order('created_at', { ascending: false }),
       supabase.from('clients').select('*, client_properties(*)').eq('status', 'active').order('name'),
       supabase.from('service_types').select('*').eq('is_active', true).order('name'),
       supabase.from('pricing_matrix').select('*'),
+      supabase.from('users').select('id, name, availability').in('role', ['ceo', 'manager', 'worker']).eq('availability', 'available').order('name'),
     ])
     setQuotes(quotesRes.data || [])
     setClients(clientsRes.data || [])
     setServiceTypes(typesRes.data || [])
     setPricingMatrix(matrixRes.data || [])
+    setWorkers(workersRes.data || [])
     setLoading(false)
   }
 
@@ -139,6 +150,7 @@ export default function Quotes({ user }) {
 
   function openView(quote) {
     setSelectedQuote(quote)
+    setShowScheduleForm(false)
     setModal('view')
   }
 
@@ -356,29 +368,63 @@ export default function Quotes({ user }) {
 
   // ── Convert to Job ──
 
-  async function convertToJob(quote) {
-    const firstLine = quote.quote_line_items?.[0]
-    const { data: newJob } = await supabase.from('jobs').insert({
+  async function handleConvertToJob() {
+    if (!selectedQuote || !scheduleDate) return
+    setSaving(true)
+
+    const firstLine = selectedQuote.quote_line_items?.[0]
+    const perVisitPrice = firstLine ? Number(firstLine.unit_price) : Number(selectedQuote.total)
+
+    const jobData = {
       org_id: orgId,
-      client_id: quote.client_id,
+      client_id: selectedQuote.client_id,
       title: firstLine?.description || 'Service',
-      date: todayInTimezone(tz),
-      start_time: '09:00',
-      duration_minutes: serviceTypes[0]?.default_duration_minutes || 120,
+      date: scheduleDate,
+      start_time: scheduleTime,
+      duration_minutes: scheduleDuration,
       status: 'scheduled',
-      price: quote.total,
-      notes: quote.notes ? `From quote ${quote.quote_number}: ${quote.notes}` : `From quote ${quote.quote_number}`,
-      frequency: 'one_time',
-    }).select().single()
+      price: perVisitPrice,
+      notes: `From quote ${selectedQuote.quote_number}`,
+      frequency: scheduleFrequency,
+    }
+
+    const { data: newJob } = await supabase.from('jobs').insert(jobData).select().single()
 
     if (newJob) {
+      if (scheduleWorker) {
+        await supabase.from('job_assignments').insert({ job_id: newJob.id, user_id: scheduleWorker })
+      }
+
+      if (scheduleFrequency !== 'one_time') {
+        await supabase.from('jobs').update({ recurrence_group_id: newJob.id }).eq('id', newJob.id)
+        const recurringJobs = []
+        for (let i = 1; i <= 11; i++) {
+          const nextDate = new Date(scheduleDate + 'T12:00:00')
+          if (scheduleFrequency === 'monthly') nextDate.setMonth(nextDate.getMonth() + i)
+          else {
+            const interval = scheduleFrequency === 'weekly' ? 7 : 14
+            nextDate.setDate(nextDate.getDate() + (interval * i))
+          }
+          const dateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}`
+          recurringJobs.push({ ...jobData, date: dateStr, recurrence_group_id: newJob.id })
+        }
+        const { data: createdJobs } = await supabase.from('jobs').insert(recurringJobs).select()
+        if (scheduleWorker && createdJobs) {
+          const assignments = createdJobs.map(j => ({ job_id: j.id, user_id: scheduleWorker }))
+          await supabase.from('job_assignments').insert(assignments)
+        }
+      }
+
       await supabase.from('client_timeline').insert({
-        org_id: orgId, client_id: quote.client_id,
-        event_type: 'job', summary: `Job created from quote ${quote.quote_number}`,
+        org_id: orgId, client_id: selectedQuote.client_id,
+        event_type: 'job',
+        summary: `Job${scheduleFrequency !== 'one_time' ? 's (12 recurring)' : ''} created from quote ${selectedQuote.quote_number}`,
         created_by: user.id,
       })
     }
 
+    setSaving(false)
+    setShowScheduleForm(false)
     setModal(null)
     loadAll()
   }
@@ -554,17 +600,72 @@ export default function Quotes({ user }) {
                 <button onClick={() => updateStatus(selectedQuote, 'declined')} className="flex-1 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors">Declined</button>
               </div>
             )}
-            {selectedQuote.status === 'approved' && (
-              <button onClick={() => convertToJob(selectedQuote)} className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
+            {selectedQuote.status === 'approved' && !showScheduleForm && (
+              <button onClick={() => {
+                setShowScheduleForm(true)
+                setScheduleDate(todayInTimezone(tz))
+                setScheduleTime('09:00')
+                const firstLine = selectedQuote.quote_line_items?.[0]
+                const qty = firstLine?.quantity || 1
+                setScheduleFrequency(qty > 1 ? 'weekly' : 'one_time')
+                setScheduleDuration(120)
+              }} className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
                 Schedule Job from This Quote →
               </button>
             )}
+
+            {showScheduleForm && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3">
+                <div className="text-sm font-medium text-emerald-800">Schedule this job</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-stone-500 mb-1">Start Date *</label>
+                    <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-stone-500 mb-1">Time</label>
+                    <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-stone-500 mb-1">Duration (min)</label>
+                    <input type="number" value={scheduleDuration} onChange={e => setScheduleDuration(Number(e.target.value))} className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-stone-500 mb-1">Frequency</label>
+                    <select value={scheduleFrequency} onChange={e => setScheduleFrequency(e.target.value)} className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                      <option value="one_time">One time</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="biweekly">Biweekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </div>
+                </div>
+                {scheduleFrequency !== 'one_time' && (
+                  <div className="text-xs text-emerald-600">This will create 12 recurring instances starting {scheduleDate}</div>
+                )}
+                <div>
+                  <label className="block text-xs text-stone-500 mb-1">Assign Worker (optional)</label>
+                  <select value={scheduleWorker} onChange={e => setScheduleWorker(e.target.value)} className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                    <option value="">Unassigned</option>
+                    {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowScheduleForm(false)} className="flex-1 py-2 bg-white text-stone-600 text-sm font-medium rounded-xl border border-stone-200 hover:bg-stone-50 transition-colors">Cancel</button>
+                  <button onClick={() => handleConvertToJob()} disabled={!scheduleDate || saving} className="flex-1 py-2 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors">
+                    {saving ? 'Creating...' : 'Create Job'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {selectedQuote.status === 'declined' && (
               <button onClick={() => openEdit(selectedQuote)} className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Revise Quote</button>
             )}
 
             <div className="flex gap-2 pt-2">
-              <button onClick={() => openEdit(selectedQuote)} className="flex-1 py-2 text-stone-500 text-sm hover:text-stone-700 transition-colors">Edit</button>
               <button onClick={() => handleDelete(selectedQuote.id)} className="flex-1 py-2 text-red-400 text-sm hover:text-red-600 transition-colors">Delete</button>
             </div>
           </div>
