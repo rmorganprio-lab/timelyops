@@ -157,20 +157,23 @@ function App() {
           element={session ? <Navigate to="/" replace /> : <Login />}
         />
 
-        {/* App routes: authenticated users get the full app, others go to landing */}
-        {session ? (
-          <Route path="/" element={<Layout user={user} />}>
-            <Route index element={<Dashboard user={user} />} />
-            <Route path="clients" element={<Clients user={user} />} />
-            <Route path="workers" element={<Workers user={user} />} />
-            <Route path="schedule" element={<Schedule user={user} />} />
-            <Route path="quotes" element={<Quotes user={user} />} />
-            <Route path="payments" element={<Payments user={user} />} />
-            <Route path="invoices" element={<Invoices user={user} />} />
-          </Route>
-        ) : (
-          <Route path="/" element={<LandingRedirect />} />
-        )}
+        {/* All app routes are always registered so React Router can match them.
+            The parent element guards auth: authenticated users get Layout,
+            unauthenticated users get LandingRedirect (which does window.location.replace).
+            Child routes are statically declared — never conditional — so /clients,
+            /workers, etc. always exist in the route tree and never fall through to *. */}
+        <Route
+          path="/"
+          element={session ? <Layout user={user} /> : <LandingRedirect />}
+        >
+          <Route index element={<Dashboard user={user} />} />
+          <Route path="clients" element={<Clients user={user} />} />
+          <Route path="workers" element={<Workers user={user} />} />
+          <Route path="schedule" element={<Schedule user={user} />} />
+          <Route path="quotes" element={<Quotes user={user} />} />
+          <Route path="payments" element={<Payments user={user} />} />
+          <Route path="invoices" element={<Invoices user={user} />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
