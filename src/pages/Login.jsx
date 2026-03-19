@@ -1,6 +1,18 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
+function friendlyError(msg) {
+  if (!msg) return msg
+  const lower = msg.toLowerCase()
+  if (lower.includes('rate limit') || lower.includes('too many') || lower.includes('over_email') || lower.includes('email rate')) {
+    return 'Too many attempts — please wait a few minutes before trying again.'
+  }
+  if (lower.includes('for security purposes')) {
+    return 'Please wait a moment before requesting another code.'
+  }
+  return msg
+}
+
 export default function Login() {
   const [mode, setMode] = useState('phone') // 'phone' or 'email'
   const [phone, setPhone] = useState(() => localStorage.getItem('allbookd_phone') || '')
@@ -33,7 +45,7 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithOtp({ phone: formatted })
 
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error.message))
     } else {
       setPhone(formatted)
       localStorage.setItem('allbookd_phone', formatted)
@@ -54,7 +66,7 @@ export default function Login() {
     })
 
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error.message))
       setLoading(false)
     }
     // If successful, onAuthStateChange in App.jsx handles the rest
@@ -68,7 +80,7 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim() })
 
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error.message))
     } else {
       setStep('email_sent')
     }
