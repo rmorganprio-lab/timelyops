@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { SubscriptionProvider } from './contexts/SubscriptionContext'
+import { ToastProvider } from './contexts/ToastContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
@@ -12,11 +13,20 @@ import Quotes from './pages/Quotes'
 import Payments from './pages/Payments'
 import Invoices from './pages/Invoices'
 import Reports from './pages/Reports'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import AdminOrgs from './pages/admin/AdminOrgs'
+import AdminUsers from './pages/admin/AdminUsers'
 
 // Sends unauthenticated visitors to the static landing page
 function LandingRedirect() {
   useEffect(() => { window.location.replace('/landing.html') }, [])
   return null
+}
+
+// Redirects non-platform-admins away from /admin/*
+function AdminGuard({ user, children }) {
+  if (!user?.is_platform_admin) return <Navigate to="/" replace />
+  return children
 }
 
 function App() {
@@ -114,23 +124,39 @@ function App() {
       }
 
       // No user found by auth ID — first-time OTP login.
-      // Link the auth UUID to the existing user row via phone number.
+      // Try to link the auth UUID to an existing user row via phone or email.
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const phone = authUser?.phone
-      if (!phone) throw new Error('No phone on auth user')
+      const email = authUser?.email
 
-      const { data: existing, error: phoneErr } = await supabase
-        .from('users')
-        .select('*, organizations(*)')
-        .eq('phone', phone)
-        .single()
+      let existing = null
 
-      if (phoneErr || !existing) throw new Error('No matching user for phone')
+      // Try phone first
+      if (phone) {
+        const { data: byPhone } = await supabase
+          .from('users')
+          .select('*, organizations(*)')
+          .eq('phone', phone)
+          .maybeSingle()
+        existing = byPhone
+      }
+
+      // Fallback to email (covers admin-created users who sign in via OTP)
+      if (!existing && email) {
+        const { data: byEmail } = await supabase
+          .from('users')
+          .select('*, organizations(*)')
+          .eq('email', email)
+          .maybeSingle()
+        existing = byEmail
+      }
+
+      if (!existing) throw new Error('No matching user for phone or email')
 
       const { error: updateErr } = await supabase
         .from('users')
         .update({ id: authId, auth_linked: true })
-        .eq('phone', phone)
+        .eq('id', existing.id)
       if (updateErr) throw updateErr
 
       const { data: linked, error: refetchErr } = await supabase
@@ -199,7 +225,43 @@ function App() {
     )
   }
 
+  // Account status enforcement — platform admins bypass all checks
+  if (session && user && !user.is_platform_admin) {
+    const status = user?.organizations?.subscription_status
+
+    if (status === 'paused') {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4">
+          <div className="text-center max-w-sm">
+            <div className="text-stone-700 text-lg font-semibold mb-2">Account paused</div>
+            <p className="text-stone-400 text-sm">
+              Your account is paused. Please contact{' '}
+              <a href="mailto:info@timelyops.com" className="text-emerald-700 underline">info@timelyops.com</a>
+              {' '}to reactivate.
+            </p>
+          </div>
+        </div>
+      )
+    }
+
+    if (status === 'cancelled') {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-stone-50 px-4">
+          <div className="text-center max-w-sm">
+            <div className="text-stone-700 text-lg font-semibold mb-2">Account cancelled</div>
+            <p className="text-stone-400 text-sm">
+              Your account has been cancelled. Please contact{' '}
+              <a href="mailto:info@timelyops.com" className="text-emerald-700 underline">info@timelyops.com</a>
+              {' '}if you'd like to reactivate.
+            </p>
+          </div>
+        </div>
+      )
+    }
+  }
+
   return (
+    <ToastProvider>
     <SubscriptionProvider user={user}>
     <BrowserRouter>
       <Routes>
@@ -226,12 +288,18 @@ function App() {
           <Route path="payments" element={<Payments user={user} />} />
           <Route path="invoices" element={<Invoices user={user} />} />
           <Route path="reports" element={<Reports user={user} />} />
+
+          {/* Platform admin routes — redirect non-admins to / */}
+          <Route path="admin" element={<AdminGuard user={user}><AdminDashboard /></AdminGuard>} />
+          <Route path="admin/orgs" element={<AdminGuard user={user}><AdminOrgs /></AdminGuard>} />
+          <Route path="admin/users" element={<AdminGuard user={user}><AdminUsers /></AdminGuard>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
     </SubscriptionProvider>
+    </ToastProvider>
   )
 }
 

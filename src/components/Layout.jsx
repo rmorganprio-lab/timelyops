@@ -32,6 +32,7 @@ function NavIcon({ name, size = 20 }) {
     case 'invoices': return <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
     case 'payments': return <svg {...p}><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
     case 'reports': return <svg {...p}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    case 'admin': return <svg {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
     default: return null
   }
 }
@@ -110,6 +111,26 @@ export default function Layout({ user }) {
           ))}
         </nav>
 
+        {/* Admin — platform admins only */}
+        {user?.is_platform_admin && (
+          <>
+            <div className="mx-2 my-2 border-t border-stone-100" />
+            <NavLink
+              to="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className={({ isActive }) => `
+                flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
+                ${isActive
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'}
+              `}
+            >
+              <NavIcon name="admin" />
+              Admin
+            </NavLink>
+          </>
+        )}
+
         {/* User / Sign Out */}
         <div className="p-4 border-t border-stone-200">
           <div className="flex items-center justify-between">
@@ -149,6 +170,15 @@ export default function Layout({ user }) {
           <div className="font-bold text-stone-900 text-sm">{orgName}</div>
           <div className="w-10" />
         </header>
+
+        {/* Past-due banner — shown to non-admins only */}
+        {user?.organizations?.subscription_status === 'past_due' && !user?.is_platform_admin && (
+          <div className="bg-orange-50 border-b border-orange-200 px-4 py-2.5 text-sm text-orange-700 text-center">
+            Your payment is past due. Please contact{' '}
+            <a href="mailto:info@timelyops.com" className="font-semibold underline">info@timelyops.com</a>
+            {' '}to avoid service interruption.
+          </div>
+        )}
 
         {/* Page Content */}
         <main className="flex-1 overflow-auto">
