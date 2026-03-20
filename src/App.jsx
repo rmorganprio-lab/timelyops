@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
+import { SubscriptionProvider } from './contexts/SubscriptionContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
@@ -199,6 +200,7 @@ function App() {
   }
 
   return (
+    <SubscriptionProvider user={user}>
     <BrowserRouter>
       <Routes>
         {/* /login: redirect to dashboard if already authenticated */}
@@ -229,6 +231,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </SubscriptionProvider>
   )
 }
 

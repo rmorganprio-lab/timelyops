@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { todayInTimezone, formatDate, formatTime, formatTimestamp, addDays, toDateStr } from '../lib/timezone'
 import ExportModal from '../components/ExportModal'
+import FeatureGate from '../components/FeatureGate'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -862,7 +863,7 @@ const TABS = [
 export default function Reports({ user }) {
   const [tab, setTab] = useState('daily')
   const [showExport, setShowExport] = useState(false)
-  const canExport = ['ceo', 'support'].includes(user?.role)
+  const canSeeExport = ['ceo', 'support'].includes(user?.role)
 
   return (
     <div className="p-6 md:p-8">
@@ -871,18 +872,20 @@ export default function Reports({ user }) {
           <h1 className="text-2xl font-bold text-stone-900">Reports</h1>
           <p className="text-stone-500 text-sm mt-1">{user?.organizations?.name}</p>
         </div>
-        {canExport && (
-          <button
-            onClick={() => setShowExport(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-stone-200 text-stone-700 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Export Data
-          </button>
+        {canSeeExport && (
+          <FeatureGate feature="reports_export" fallback={null}>
+            <button
+              onClick={() => setShowExport(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-stone-200 text-stone-700 text-sm font-medium rounded-xl hover:bg-stone-50 transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Export Data
+            </button>
+          </FeatureGate>
         )}
       </div>
 
