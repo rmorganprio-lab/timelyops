@@ -93,7 +93,7 @@ export default function Login() {
         {/* Logo / Brand */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-700 rounded-2xl mb-4">
-            <svg width="52" height="52" viewBox="0 0 64 64" fill="none">
+            <svg width="44" height="44" viewBox="10 10 44 44" fill="none">
               <circle cx="32" cy="32" r="20" stroke="white" strokeWidth="2.2" fill="none"/>
               <line x1="32" y1="32" x2="25" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
               <line x1="32" y1="32" x2="41" y2="24" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>

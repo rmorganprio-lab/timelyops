@@ -75,7 +75,7 @@ export default function Layout({ user }) {
         <div className="p-5 border-b border-stone-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-emerald-700 rounded-xl flex items-center justify-center">
-              <svg width="30" height="30" viewBox="0 0 64 64" fill="none">
+              <svg width="28" height="28" viewBox="10 10 44 44" fill="none">
                 <circle cx="32" cy="32" r="20" stroke="white" strokeWidth="2.2" fill="none"/>
                 <line x1="32" y1="32" x2="25" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
                 <line x1="32" y1="32" x2="41" y2="24" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
