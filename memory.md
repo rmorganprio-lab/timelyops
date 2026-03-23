@@ -1,6 +1,6 @@
 # TimelyOps — Project Memory
 
-Last updated: 2026-03-23
+Last updated: 2026-03-23 (email system added)
 
 ---
 
@@ -34,6 +34,15 @@ Routes: `/admin`, `/admin/orgs`, `/admin/users`, `/admin/audit`
 - RLS uses a `SECURITY DEFINER` function to avoid recursion when checking admin status
 - Admin can "View org data" — scopes all data queries to the selected org without changing identity
 - All admin actions logged to `audit_log` table
+
+### Outbound email (Resend)
+- Edge Function `send-email` (JWT required): 5 types — `quote`, `invoice`, `payment_receipt`, `quote_approved`, `quote_declined`
+- Edge Function `quote-action` (no JWT, deploy with `--no-verify-jwt`): token-based actions for public pages — `get_quote`, `approve_quote`, `decline_quote`, `get_invoice`
+- Public pages: `/approve/:token` (QuoteApproval.jsx), `/invoice/:token` (InvoiceView.jsx) — no auth required
+- DB columns: `quotes.approval_token`, `quotes.approved_at`, `quotes.declined_at`, `quotes.decline_reason`; `invoices.view_token`; `email_log` table
+- Send buttons: Quotes (draft→Send Quote, sent→Resend Quote), Invoices (draft→Send Invoice, sent→Resend Invoice), Payments (Send Receipt)
+- From: `{Org Name} via TimelyOps <notifications@timelyops.com>`; Reply-To: org owner email
+- Requires: `RESEND_API_KEY` env var in Supabase Edge Functions settings
 
 ### Subscription / feature gating
 - Tiers: Starter ($79), Professional ($119), Growth ($249)
@@ -78,8 +87,11 @@ Edge Function `admin-update-auth-user` (deployed, ACTIVE v1) handles updating `a
 ---
 
 ## TODO / open items
+- [ ] Deploy Edge Functions: `supabase functions deploy send-email` and `supabase functions deploy quote-action --no-verify-jwt`
+- [ ] Add `RESEND_API_KEY` to Supabase Edge Function environment variables
 - [ ] Wire `logAudit()` to client/invoice/payment/quote creates in core pages
 - [ ] Upgrade Twilio from trial to remove NL SMS block
 - [ ] Growth tier AI agent system (inbound/outbound comms via Claude API + Twilio)
 - [ ] Online booking page (Professional tier)
 - [ ] Automated reminders (Professional tier)
+- [ ] Online payment (Stripe) for invoice view page
