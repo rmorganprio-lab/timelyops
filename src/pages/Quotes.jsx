@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
 
 const statusColors = {
@@ -21,6 +22,7 @@ export default function Quotes({ user }) {
   const orgId = user?.org_id
   const { adminViewOrg } = useAdminOrg()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
+  const { showToast } = useToast()
 
   const [quotes, setQuotes] = useState([])
   const [clients, setClients] = useState([])
@@ -31,6 +33,7 @@ export default function Quotes({ user }) {
   const [modal, setModal] = useState(null) // 'add' | 'edit' | 'view'
   const [selectedQuote, setSelectedQuote] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [sending, setSending] = useState(false)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
 
@@ -350,6 +353,43 @@ export default function Quotes({ user }) {
     loadAll()
   }
 
+  // ── Send quote email ──
+
+  async function sendQuote(quote) {
+    if (!quote.clients?.email) {
+      showToast('Client has no email address', 'error')
+      return
+    }
+    setSending(true)
+    try {
+      // Generate approval token if missing
+      let token = quote.approval_token
+      if (!token) {
+        token = crypto.randomUUID()
+        await supabase.from('quotes').update({ approval_token: token }).eq('id', quote.id)
+      }
+
+      const { data, error } = await supabase.functions.invoke('send-email', {
+        body: { type: 'quote', quote_id: quote.id },
+      })
+
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
+
+      // Update status to sent if still draft
+      if (quote.status === 'draft') {
+        await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      }
+
+      showToast(`Quote sent to ${quote.clients.email}`)
+      loadAll()
+      setSelectedQuote(prev => prev ? { ...prev, status: 'sent', approval_token: token } : prev)
+    } catch (err) {
+      showToast(err.message || 'Failed to send quote', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
   // ── Status update ──
 
   async function updateStatus(quote, newStatus) {
@@ -592,15 +632,35 @@ export default function Quotes({ user }) {
           {/* Status actions — the connected flow */}
           <div className="pt-4 border-t border-stone-200 space-y-2">
             {selectedQuote.status === 'draft' && (
-              <div className="flex gap-2">
-                <button onClick={() => openEdit(selectedQuote)} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Edit</button>
-                <button onClick={() => updateStatus(selectedQuote, 'sent')} className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition-colors">Mark as Sent</button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button onClick={() => openEdit(selectedQuote)} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Edit</button>
+                  <button onClick={() => updateStatus(selectedQuote, 'sent')} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Mark as Sent</button>
+                </div>
+                <button
+                  onClick={() => sendQuote(selectedQuote)}
+                  disabled={sending}
+                  className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  {sending ? 'Sending…' : 'Send Quote'}
+                </button>
               </div>
             )}
             {selectedQuote.status === 'sent' && (
-              <div className="flex gap-2">
-                <button onClick={() => updateStatus(selectedQuote, 'approved')} className="flex-1 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">Approved</button>
-                <button onClick={() => updateStatus(selectedQuote, 'declined')} className="flex-1 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors">Declined</button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <button onClick={() => updateStatus(selectedQuote, 'approved')} className="flex-1 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">Approved</button>
+                  <button onClick={() => updateStatus(selectedQuote, 'declined')} className="flex-1 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors">Declined</button>
+                </div>
+                <button
+                  onClick={() => sendQuote(selectedQuote)}
+                  disabled={sending}
+                  className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  {sending ? 'Sending…' : 'Resend Quote'}
+                </button>
               </div>
             )}
             {selectedQuote.status === 'approved' && !showScheduleForm && (

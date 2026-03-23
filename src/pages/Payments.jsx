@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
 
 const METHODS = ['cash', 'venmo', 'zelle', 'card', 'bank_transfer', 'check', 'other']
@@ -29,6 +30,7 @@ export default function Payments({ user }) {
   const tzAbbr = getTimezoneAbbr(tz)
   const { adminViewOrg } = useAdminOrg()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
+  const { showToast } = useToast()
 
   const [payments, setPayments] = useState([])
   const [clients, setClients] = useState([])
@@ -38,6 +40,7 @@ export default function Payments({ user }) {
   const [form, setForm] = useState(emptyPayment)
   const [selectedPayment, setSelectedPayment] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [sending, setSending] = useState(false)
   const [clientJobs, setClientJobs] = useState([])
   const [filter, setFilter] = useState({ method: 'all', client: 'all', period: 'all' })
   const [search, setSearch] = useState('')
@@ -46,7 +49,7 @@ export default function Payments({ user }) {
 
   async function loadAll() {
     const [paymentsRes, clientsRes, invoicesRes] = await Promise.all([
-      supabase.from('payments').select('*, clients(name), invoices(invoice_number)').eq('org_id', effectiveOrgId).order('date', { ascending: false }),
+      supabase.from('payments').select('*, clients(name, email), invoices(invoice_number, total)').eq('org_id', effectiveOrgId).order('date', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
       supabase.from('invoices').select('id, invoice_number, total, status, client_id, clients(name)').eq('org_id', effectiveOrgId).in('status', ['sent', 'overdue']).order('created_at', { ascending: false }),
     ])
@@ -180,6 +183,27 @@ export default function Payments({ user }) {
     setSaving(false)
     setModal(null)
     loadAll()
+  }
+
+  // ── Send receipt email ──
+
+  async function sendReceipt(payment) {
+    if (!payment.clients?.email) {
+      showToast('Client has no email address', 'error')
+      return
+    }
+    setSending(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('send-email', {
+        body: { type: 'payment_receipt', payment_id: payment.id },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
+      showToast(`Receipt sent to ${payment.clients.email}`)
+    } catch (err) {
+      showToast(err.message || 'Failed to send receipt', 'error')
+    } finally {
+      setSending(false)
+    }
   }
 
   // ── Delete ──
@@ -349,9 +373,19 @@ export default function Payments({ user }) {
             {selectedPayment.notes && <InfoRow label="Notes" value={selectedPayment.notes} />}
           </div>
 
-          <div className="flex gap-3 pt-4 border-t border-stone-200">
-            <button onClick={() => openEdit(selectedPayment)} className="flex-1 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800">Edit</button>
-            <button onClick={handleDelete} className="px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100">Delete</button>
+          <div className="space-y-2 pt-4 border-t border-stone-200">
+            <button
+              onClick={() => sendReceipt(selectedPayment)}
+              disabled={sending}
+              className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              {sending ? 'Sending…' : 'Send Receipt'}
+            </button>
+            <div className="flex gap-3">
+              <button onClick={() => openEdit(selectedPayment)} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200">Edit</button>
+              <button onClick={handleDelete} className="px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100">Delete</button>
+            </div>
           </div>
         </Modal>
       )}

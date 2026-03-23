@@ -18,6 +18,8 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminOrgs from './pages/admin/AdminOrgs'
 import AdminUsers from './pages/admin/AdminUsers'
 import AdminAudit from './pages/admin/AdminAudit'
+import QuoteApproval from './pages/QuoteApproval'
+import InvoiceView from './pages/InvoiceView'
 
 // Sends unauthenticated visitors to the static landing page
 function LandingRedirect() {
@@ -59,6 +61,10 @@ function AppRoutes({ user, session }) {
             <Route path="admin/users" element={<AdminGuard user={user}><AdminUsers user={user} /></AdminGuard>} />
             <Route path="admin/audit" element={<AdminGuard user={user}><AdminAudit /></AdminGuard>} />
           </Route>
+
+          {/* Public token-based pages — no auth required */}
+          <Route path="/approve/:token" element={<QuoteApproval />} />
+          <Route path="/invoice/:token" element={<InvoiceView />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
