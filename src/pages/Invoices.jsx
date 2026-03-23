@@ -309,7 +309,9 @@ export default function Invoices({ user }) {
         await supabase.from('invoices').update({ view_token: token }).eq('id', invoice.id)
       }
 
+      const { data: { session } } = await supabase.auth.getSession()
       const { data, error } = await supabase.functions.invoke('send-email', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { type: 'invoice', invoice_id: invoice.id },
       })
 

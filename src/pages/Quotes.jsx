@@ -369,7 +369,9 @@ export default function Quotes({ user }) {
         await supabase.from('quotes').update({ approval_token: token }).eq('id', quote.id)
       }
 
+      const { data: { session } } = await supabase.auth.getSession()
       const { data, error } = await supabase.functions.invoke('send-email', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { type: 'quote', quote_id: quote.id },
       })
 

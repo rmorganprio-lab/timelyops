@@ -194,7 +194,9 @@ export default function Payments({ user }) {
     }
     setSending(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const { data, error } = await supabase.functions.invoke('send-email', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { type: 'payment_receipt', payment_id: payment.id },
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
