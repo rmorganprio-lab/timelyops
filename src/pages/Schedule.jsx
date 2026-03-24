@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase'
 import { todayInTimezone, toDateStr, formatDateFull, formatTime, formatTimestamp, getTimezoneAbbr, nowInTimezone } from '../lib/timezone'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
-import DeliveryModal from '../components/DeliveryModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -49,8 +48,6 @@ export default function Schedule({ user }) {
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState('cash')
   const [paymentSaving, setPaymentSaving] = useState(false)
-  const [receiptDelivery, setReceiptDelivery] = useState(null) // { paymentId, token, client }
-  const [receiptSending, setReceiptSending] = useState(false)
   const [jobLinkedData, setJobLinkedData] = useState(null) // { payments, items } for delete warning
 
   const canDelete = user?.role === 'ceo' || user?.role === 'manager' || user?.is_platform_admin
@@ -318,10 +315,10 @@ export default function Schedule({ user }) {
       created_by: user.id,
     })
 
-    // Show receipt delivery picker
+    // Auto-send receipt with fallback
     if (newPayment?.id) {
       const client = clients.find(c => c.id === paymentModal.client_id)
-      setReceiptDelivery({ paymentId: newPayment.id, token: view_token, client })
+      sendReceiptAuto(newPayment.id, view_token, client)
     }
 
     setPaymentSaving(false)
@@ -329,55 +326,78 @@ export default function Schedule({ user }) {
     loadAll()
   }
 
-  // ── Receipt delivery from job completion ──
+  // ── Receipt auto-send with fallback ──
 
-  async function sendReceiptEmail() {
-    if (!receiptDelivery) return
-    setReceiptSending(true)
+  async function sendReceiptAuto(paymentId, token, client) {
+    const preferred = client?.preferred_contact || 'email'
+    const hasEmail = !!client?.email
+    const hasPhone = !!client?.phone
+    const receiptUrl = `${window.location.origin}/receipt/${token}`
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const { data, error } = await supabase.functions.invoke('send-email', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { type: 'payment_receipt', payment_id: receiptDelivery.paymentId },
-      })
-      if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
-      showToast(`Receipt sent to ${receiptDelivery.client.email}`)
-      setReceiptDelivery(null)
-    } catch (err) {
-      showToast(err.message || 'Failed to send receipt', 'error')
-    } finally {
-      setReceiptSending(false)
-    }
-  }
 
-  async function sendReceiptSms() {
-    if (!receiptDelivery) return
-    setReceiptSending(true)
-    try {
-      const receiptUrl = `${window.location.origin}/receipt/${receiptDelivery.token}`
-      const firstName = receiptDelivery.client?.name?.split(' ')[0] || 'there'
-      const message = `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}`
-      const { data: { session } } = await supabase.auth.getSession()
-      const { data, error } = await supabase.functions.invoke('send-sms', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { to: receiptDelivery.client.phone, message },
-      })
-      if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
-      showToast(`Receipt sent via SMS to ${receiptDelivery.client.phone}`)
-      setReceiptDelivery(null)
-    } catch (err) {
-      showToast(err.message || 'Failed to send SMS', 'error')
-    } finally {
-      setReceiptSending(false)
-    }
-  }
+      // WhatsApp / Phone → always copy link (no direct integration)
+      if (preferred === 'whatsapp' || preferred === 'phone') {
+        await navigator.clipboard.writeText(receiptUrl)
+        showToast('Receipt link copied — share it with the client')
+        return
+      }
 
-  async function copyReceiptLink() {
-    if (!receiptDelivery) return
-    const url = `${window.location.origin}/receipt/${receiptDelivery.token}`
-    await navigator.clipboard.writeText(url)
-    showToast('Receipt link copied to clipboard')
-    setReceiptDelivery(null)
+      // Email preferred
+      if (preferred === 'email') {
+        if (hasEmail) {
+          const { data, error } = await supabase.functions.invoke('send-email', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { type: 'payment_receipt', payment_id: paymentId },
+          })
+          if (error || data?.error) throw new Error(error?.message || data?.error)
+          showToast('Receipt sent via email')
+        } else if (hasPhone) {
+          const firstName = client.name?.split(' ')[0] || 'there'
+          const { data, error } = await supabase.functions.invoke('send-sms', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { to: client.phone, message: `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}` },
+          })
+          if (error || data?.error) throw new Error(error?.message || data?.error)
+          showToast('No email on file — receipt sent via SMS')
+        } else {
+          await navigator.clipboard.writeText(receiptUrl).catch(() => {})
+          showToast('No email or phone on file — receipt link copied to clipboard')
+        }
+        return
+      }
+
+      // SMS preferred
+      if (preferred === 'sms') {
+        if (hasPhone) {
+          const firstName = client.name?.split(' ')[0] || 'there'
+          const { data, error } = await supabase.functions.invoke('send-sms', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { to: client.phone, message: `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}` },
+          })
+          if (error || data?.error) throw new Error(error?.message || data?.error)
+          showToast('Receipt sent via SMS')
+        } else if (hasEmail) {
+          const { data, error } = await supabase.functions.invoke('send-email', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { type: 'payment_receipt', payment_id: paymentId },
+          })
+          if (error || data?.error) throw new Error(error?.message || data?.error)
+          showToast('No phone on file — receipt sent via email')
+        } else {
+          await navigator.clipboard.writeText(receiptUrl).catch(() => {})
+          showToast('No email or phone on file — receipt link copied to clipboard')
+        }
+      }
+    } catch (err) {
+      const url = receiptUrl
+      showToast(
+        'Could not send receipt automatically',
+        'error',
+        { label: 'Copy link', onClick: () => navigator.clipboard.writeText(url).catch(() => {}) }
+      )
+    }
   }
 
   // ── Delete job (with linked data check) ──
@@ -639,20 +659,6 @@ export default function Schedule({ user }) {
             </button>
           </div>
         </Modal>
-      )}
-
-      {/* ── Receipt Delivery Modal ── */}
-      {receiptDelivery && (
-        <DeliveryModal
-          client={receiptDelivery.client}
-          publicUrl={`${window.location.origin}/receipt/${receiptDelivery.token}`}
-          label="Receipt"
-          sending={receiptSending}
-          onEmail={sendReceiptEmail}
-          onSms={sendReceiptSms}
-          onCopyLink={copyReceiptLink}
-          onClose={() => setReceiptDelivery(null)}
-        />
       )}
 
       {/* ── Add/Edit Job Modal ── */}
