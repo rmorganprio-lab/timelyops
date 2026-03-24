@@ -154,13 +154,25 @@ export function addDays(dateStr, days) {
 }
 
 /**
- * Common US timezones for the settings dropdown
+ * Common timezones for the settings dropdown
  */
 export const US_TIMEZONES = [
-  { value: 'Pacific/Honolulu', label: 'Hawaii (HST)' },
-  { value: 'America/Anchorage', label: 'Alaska (AKST)' },
-  { value: 'America/Los_Angeles', label: 'Pacific (PST/PDT)' },
-  { value: 'America/Denver', label: 'Mountain (MST/MDT)' },
-  { value: 'America/Chicago', label: 'Central (CST/CDT)' },
-  { value: 'America/New_York', label: 'Eastern (EST/EDT)' },
+  { value: 'Pacific/Honolulu',      label: 'Hawaii (HST/HDT)',         group: 'Americas' },
+  { value: 'America/Anchorage',     label: 'Alaska (AKST/AKDT)',       group: 'Americas' },
+  { value: 'America/Los_Angeles',   label: 'Pacific (PST/PDT)',        group: 'Americas' },
+  { value: 'America/Denver',        label: 'Mountain (MST/MDT)',       group: 'Americas' },
+  { value: 'America/Chicago',       label: 'Central (CST/CDT)',        group: 'Americas' },
+  { value: 'America/New_York',      label: 'Eastern (EST/EDT)',        group: 'Americas' },
+  { value: 'America/Sao_Paulo',     label: 'São Paulo (BRT/BRST)',     group: 'Americas' },
+  { value: 'Europe/London',         label: 'London (GMT/BST)',         group: 'Europe' },
+  { value: 'Europe/Amsterdam',      label: 'Amsterdam (CET/CEST)',     group: 'Europe' },
+  { value: 'Europe/Paris',          label: 'Paris (CET/CEST)',         group: 'Europe' },
+  { value: 'Europe/Berlin',         label: 'Berlin (CET/CEST)',        group: 'Europe' },
+  { value: 'Europe/Madrid',         label: 'Madrid (CET/CEST)',        group: 'Europe' },
+  { value: 'Europe/Helsinki',       label: 'Helsinki (EET/EEST)',      group: 'Europe' },
+  { value: 'Asia/Dubai',            label: 'Dubai (GST)',              group: 'Asia / Pacific' },
+  { value: 'Asia/Singapore',        label: 'Singapore (SGT)',          group: 'Asia / Pacific' },
+  { value: 'Asia/Tokyo',            label: 'Tokyo (JST)',              group: 'Asia / Pacific' },
+  { value: 'Asia/Sydney',           label: 'Sydney (AEST/AEDT)',       group: 'Asia / Pacific' },
+  { value: 'Pacific/Auckland',      label: 'Auckland (NZST/NZDT)',     group: 'Asia / Pacific' },
 ]

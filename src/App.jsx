@@ -18,6 +18,7 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminOrgs from './pages/admin/AdminOrgs'
 import AdminUsers from './pages/admin/AdminUsers'
 import AdminAudit from './pages/admin/AdminAudit'
+import Settings from './pages/Settings'
 import QuoteApproval from './pages/QuoteApproval'
 import InvoiceView from './pages/InvoiceView'
 import PaymentReceipt from './pages/PaymentReceipt'
@@ -55,6 +56,7 @@ function AppRoutes({ user, session }) {
             <Route path="payments" element={<Payments user={user} />} />
             <Route path="invoices" element={<Invoices user={user} />} />
             <Route path="reports" element={<Reports user={user} />} />
+            <Route path="settings" element={<Settings user={user} />} />
 
             {/* Platform admin routes */}
             <Route path="admin" element={<AdminGuard user={user}><AdminDashboard /></AdminGuard>} />
