@@ -49,6 +49,12 @@ export default function Invoices({ user }) {
   const [payMethod, setPayMethod] = useState('cash')
   const [paymentSaving, setPaymentSaving] = useState(false)
 
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState(null) // invoice to delete
+  const [deleteLinkedPayments, setDeleteLinkedPayments] = useState(0)
+
+  const canDelete = user?.role === 'ceo' || user?.is_platform_admin
+
   useEffect(() => { loadAll() }, [effectiveOrgId])
 
   async function loadAll() {
@@ -422,11 +428,20 @@ export default function Invoices({ user }) {
 
   // ── Delete ──
 
-  async function handleDelete(id) {
-    // Unlink any jobs
-    await supabase.from('jobs').update({ invoice_id: null }).eq('invoice_id', id)
-    await supabase.from('invoice_line_items').delete().eq('invoice_id', id)
-    await supabase.from('invoices').delete().eq('id', id)
+  async function initiateDelete(invoice) {
+    const { count } = await supabase
+      .from('payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('invoice_id', invoice.id)
+    setDeleteLinkedPayments(count || 0)
+    setDeleteTarget(invoice)
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    await supabase.from('invoices').delete().eq('id', deleteTarget.id)
+    setDeleteTarget(null)
+    setDeleteLinkedPayments(0)
     setModal(null)
     loadAll()
   }
@@ -799,8 +814,24 @@ export default function Invoices({ user }) {
 
             <div className="flex gap-2 pt-2">
               {selectedInvoice.status !== 'paid' && <button onClick={() => openEdit(selectedInvoice)} className="flex-1 py-2 text-stone-500 text-sm hover:text-stone-700 transition-colors">Edit</button>}
-              <button onClick={() => handleDelete(selectedInvoice.id)} className="flex-1 py-2 text-red-400 text-sm hover:text-red-600 transition-colors">Delete</button>
+              {canDelete && <button onClick={() => initiateDelete(selectedInvoice)} className="flex-1 py-2 text-red-400 text-sm hover:text-red-600 transition-colors">Delete</button>}
             </div>
+
+            {/* Delete confirmation */}
+            {deleteTarget?.id === selectedInvoice.id && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+                {deleteLinkedPayments > 0 && (
+                  <p className="text-xs text-red-600 mb-2">
+                    This invoice has {deleteLinkedPayments} payment{deleteLinkedPayments > 1 ? 's' : ''} linked to it. Deleting will unlink them.
+                  </p>
+                )}
+                <p className="text-sm text-red-700 mb-3">This will permanently delete this invoice. This cannot be undone. Are you sure?</p>
+                <div className="flex gap-2">
+                  <button onClick={confirmDelete} className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">Yes, delete</button>
+                  <button onClick={() => { setDeleteTarget(null); setDeleteLinkedPayments(0) }} className="px-3 py-1.5 bg-white text-stone-600 text-sm rounded-lg border border-stone-200 hover:bg-stone-50">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}

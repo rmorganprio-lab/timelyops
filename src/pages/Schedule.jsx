@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { todayInTimezone, toDateStr, formatDateFull, formatTime, formatTimestamp, getTimezoneAbbr, nowInTimezone } from '../lib/timezone'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
+import DeliveryModal from '../components/DeliveryModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -48,6 +49,11 @@ export default function Schedule({ user }) {
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState('cash')
   const [paymentSaving, setPaymentSaving] = useState(false)
+  const [receiptDelivery, setReceiptDelivery] = useState(null) // { paymentId, token, client }
+  const [receiptSending, setReceiptSending] = useState(false)
+  const [jobLinkedData, setJobLinkedData] = useState(null) // { payments, items } for delete warning
+
+  const canDelete = user?.role === 'ceo' || user?.role === 'manager' || user?.is_platform_admin
 
   useEffect(() => { loadAll() }, [effectiveOrgId])
 
@@ -266,6 +272,7 @@ export default function Schedule({ user }) {
     setModal(null)
     setDeleteConfirm(false)
     setShowDeleteRecurring(false)
+    setJobLinkedData(null)
     loadAll()
   }
 
@@ -311,38 +318,79 @@ export default function Schedule({ user }) {
       created_by: user.id,
     })
 
-    // Auto-send receipt based on client's preferred_contact
+    // Show receipt delivery picker
     if (newPayment?.id) {
       const client = clients.find(c => c.id === paymentModal.client_id)
-      const preferred = client?.preferred_contact || 'sms'
-
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-
-        if ((preferred === 'email' || (!client?.phone && client?.email)) && client?.email) {
-          await supabase.functions.invoke('send-email', {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: { type: 'payment_receipt', payment_id: newPayment.id },
-          })
-          showToast(`Receipt sent to ${client.email}`)
-        } else if ((preferred === 'sms' || preferred === 'whatsapp' || preferred === 'phone') && client?.phone) {
-          const receiptUrl = `${window.location.origin}/receipt/${view_token}`
-          const firstName = client.name?.split(' ')[0] || 'there'
-          const message = `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}`
-          await supabase.functions.invoke('send-sms', {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: { to: client.phone, message },
-          })
-          showToast(`Receipt sent via SMS to ${client.phone}`)
-        }
-      } catch {
-        // Best effort — don't block completion on receipt send failure
-      }
+      setReceiptDelivery({ paymentId: newPayment.id, token: view_token, client })
     }
 
     setPaymentSaving(false)
     setPaymentModal(null)
     loadAll()
+  }
+
+  // ── Receipt delivery from job completion ──
+
+  async function sendReceiptEmail() {
+    if (!receiptDelivery) return
+    setReceiptSending(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('send-email', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { type: 'payment_receipt', payment_id: receiptDelivery.paymentId },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
+      showToast(`Receipt sent to ${receiptDelivery.client.email}`)
+      setReceiptDelivery(null)
+    } catch (err) {
+      showToast(err.message || 'Failed to send receipt', 'error')
+    } finally {
+      setReceiptSending(false)
+    }
+  }
+
+  async function sendReceiptSms() {
+    if (!receiptDelivery) return
+    setReceiptSending(true)
+    try {
+      const receiptUrl = `${window.location.origin}/receipt/${receiptDelivery.token}`
+      const firstName = receiptDelivery.client?.name?.split(' ')[0] || 'there'
+      const message = `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}`
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { to: receiptDelivery.client.phone, message },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
+      showToast(`Receipt sent via SMS to ${receiptDelivery.client.phone}`)
+      setReceiptDelivery(null)
+    } catch (err) {
+      showToast(err.message || 'Failed to send SMS', 'error')
+    } finally {
+      setReceiptSending(false)
+    }
+  }
+
+  async function copyReceiptLink() {
+    if (!receiptDelivery) return
+    const url = `${window.location.origin}/receipt/${receiptDelivery.token}`
+    await navigator.clipboard.writeText(url)
+    showToast('Receipt link copied to clipboard')
+    setReceiptDelivery(null)
+  }
+
+  // ── Delete job (with linked data check) ──
+
+  async function initiateJobDelete() {
+    if (!selectedJob) return
+    const [paymentsRes, itemsRes] = await Promise.all([
+      supabase.from('payments').select('id', { count: 'exact', head: true }).eq('job_id', selectedJob.id),
+      supabase.from('invoice_line_items').select('id', { count: 'exact', head: true }).eq('job_id', selectedJob.id),
+    ])
+    setJobLinkedData({ payments: paymentsRes.count || 0, items: itemsRes.count || 0 })
+    if (isRecurring(selectedJob)) setShowDeleteRecurring(true)
+    else setDeleteConfirm(true)
   }
 
   // ── Conflict detection ──
@@ -488,16 +536,26 @@ export default function Schedule({ user }) {
 
           <div className="flex gap-3 mt-4 pt-4 border-t border-stone-200">
             <button onClick={() => openEdit(selectedJob)} className="flex-1 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800">Edit Job</button>
-            <button onClick={() => { if (isRecurring(selectedJob)) setShowDeleteRecurring(true); else setDeleteConfirm(true) }} className="px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100">Delete</button>
+            {canDelete && (
+              <button onClick={initiateJobDelete} className="px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100">Delete</button>
+            )}
           </div>
 
           {/* Non-recurring delete confirm */}
           {deleteConfirm && !isRecurring(selectedJob) && (
             <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-sm text-red-700 mb-3">Delete this job?</p>
+              {jobLinkedData && (jobLinkedData.payments > 0 || jobLinkedData.items > 0) && (
+                <p className="text-xs text-red-600 mb-2">
+                  This job has {[
+                    jobLinkedData.payments > 0 && `${jobLinkedData.payments} payment${jobLinkedData.payments > 1 ? 's' : ''}`,
+                    jobLinkedData.items > 0 && `${jobLinkedData.items} invoice line item${jobLinkedData.items > 1 ? 's' : ''}`,
+                  ].filter(Boolean).join(' and ')} linked to it. Deleting will unlink them.
+                </p>
+              )}
+              <p className="text-sm text-red-700 mb-3">This will permanently delete this job. This cannot be undone. Are you sure?</p>
               <div className="flex gap-2">
                 <button onClick={() => handleDelete('this')} className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">Yes, delete</button>
-                <button onClick={() => setDeleteConfirm(false)} className="px-3 py-1.5 bg-white text-stone-600 text-sm rounded-lg border border-stone-200 hover:bg-stone-50">Cancel</button>
+                <button onClick={() => { setDeleteConfirm(false); setJobLinkedData(null) }} className="px-3 py-1.5 bg-white text-stone-600 text-sm rounded-lg border border-stone-200 hover:bg-stone-50">Cancel</button>
               </div>
             </div>
           )}
@@ -505,6 +563,14 @@ export default function Schedule({ user }) {
           {/* Recurring delete options */}
           {showDeleteRecurring && (
             <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+              {jobLinkedData && (jobLinkedData.payments > 0 || jobLinkedData.items > 0) && (
+                <p className="text-xs text-red-600 mb-2">
+                  This job has {[
+                    jobLinkedData.payments > 0 && `${jobLinkedData.payments} payment${jobLinkedData.payments > 1 ? 's' : ''}`,
+                    jobLinkedData.items > 0 && `${jobLinkedData.items} invoice line item${jobLinkedData.items > 1 ? 's' : ''}`,
+                  ].filter(Boolean).join(' and ')} linked to it. Deleting will unlink them.
+                </p>
+              )}
               <p className="text-sm font-medium text-red-800 mb-3">Delete recurring job</p>
               <div className="space-y-2">
                 <button onClick={() => handleDelete('this')} className="w-full p-3 bg-white border border-red-200 rounded-lg text-left hover:bg-red-100 transition-colors">
@@ -519,7 +585,7 @@ export default function Schedule({ user }) {
                   <div className="text-sm font-medium text-red-700">All in series</div>
                   <div className="text-xs text-red-500 mt-0.5">Delete every instance</div>
                 </button>
-                <button onClick={() => setShowDeleteRecurring(false)} className="w-full py-2 text-stone-500 text-sm hover:text-stone-700">Cancel</button>
+                <button onClick={() => { setShowDeleteRecurring(false); setJobLinkedData(null) }} className="w-full py-2 text-stone-500 text-sm hover:text-stone-700">Cancel</button>
               </div>
             </div>
           )}
@@ -573,6 +639,20 @@ export default function Schedule({ user }) {
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* ── Receipt Delivery Modal ── */}
+      {receiptDelivery && (
+        <DeliveryModal
+          client={receiptDelivery.client}
+          publicUrl={`${window.location.origin}/receipt/${receiptDelivery.token}`}
+          label="Receipt"
+          sending={receiptSending}
+          onEmail={sendReceiptEmail}
+          onSms={sendReceiptSms}
+          onCopyLink={copyReceiptLink}
+          onClose={() => setReceiptDelivery(null)}
+        />
       )}
 
       {/* ── Add/Edit Job Modal ── */}
