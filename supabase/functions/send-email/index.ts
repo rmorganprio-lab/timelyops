@@ -296,8 +296,14 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const resendApiKey = Deno.env.get('RESEND_API_KEY')!
 
+    console.log('[send-email] SUPABASE_URL set:', !!supabaseUrl)
+    console.log('[send-email] SUPABASE_SERVICE_ROLE_KEY set:', !!supabaseServiceKey)
+    console.log('[send-email] SUPABASE_ANON_KEY set:', !!supabaseAnonKey)
+
     const anonClient = createClient(supabaseUrl, supabaseAnonKey)
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
 
     const { data: { user: authUser }, error: authError } = await anonClient.auth.getUser(
       authHeader.replace('Bearer ', '')
@@ -325,12 +331,14 @@ serve(async (req) => {
         const { quote_id } = body
         if (!quote_id) throw new Error('Missing quote_id')
 
+        console.log('[send-email] Fetching quote:', quote_id)
         const { data: quote, error } = await adminClient
           .from('quotes')
           .select('*, clients(name, email), organizations(name, email), quote_line_items(*)')
           .eq('id', quote_id)
           .single()
-        if (error || !quote) throw new Error('Quote not found')
+        console.log('[send-email] Quote query result — data:', JSON.stringify(quote), 'error:', JSON.stringify(error))
+        if (error || !quote) throw new Error(`Quote not found: ${error?.message || error?.code || 'no data'}`)
         if (!quote.clients?.email) throw new Error('Client has no email address')
 
         to = quote.clients.email
@@ -359,12 +367,14 @@ serve(async (req) => {
         const { invoice_id } = body
         if (!invoice_id) throw new Error('Missing invoice_id')
 
-        const { data: invoice, error } = await adminClient
+        console.log('[send-email] Fetching invoice:', invoice_id)
+        const { data: invoice, error: invError } = await adminClient
           .from('invoices')
           .select('*, clients(name, email), organizations(name, email), invoice_line_items(*)')
           .eq('id', invoice_id)
           .single()
-        if (error || !invoice) throw new Error('Invoice not found')
+        console.log('[send-email] Invoice query result — data:', JSON.stringify(invoice), 'error:', JSON.stringify(invError))
+        if (invError || !invoice) throw new Error(`Invoice not found: ${invError?.message || invError?.code || 'no data'}`)
         if (!invoice.clients?.email) throw new Error('Client has no email address')
 
         to = invoice.clients.email
@@ -393,12 +403,14 @@ serve(async (req) => {
         const { payment_id } = body
         if (!payment_id) throw new Error('Missing payment_id')
 
-        const { data: payment, error } = await adminClient
+        console.log('[send-email] Fetching payment:', payment_id)
+        const { data: payment, error: payError } = await adminClient
           .from('payments')
           .select('*, clients(name, email), invoices(invoice_number, total), organizations(name, email)')
           .eq('id', payment_id)
           .single()
-        if (error || !payment) throw new Error('Payment not found')
+        console.log('[send-email] Payment query result — data:', JSON.stringify(payment), 'error:', JSON.stringify(payError))
+        if (payError || !payment) throw new Error(`Payment not found: ${payError?.message || payError?.code || 'no data'}`)
         if (!payment.clients?.email) throw new Error('Client has no email address')
 
         to = payment.clients.email
