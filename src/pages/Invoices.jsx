@@ -5,6 +5,7 @@ import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
 import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
 import { jsPDF } from 'jspdf'
+import DeliveryModal from '../components/DeliveryModal'
 
 const statusColors = {
   draft: 'bg-stone-100 text-stone-600',
@@ -31,6 +32,7 @@ export default function Invoices({ user }) {
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
+  const [deliveryModal, setDeliveryModal] = useState(null) // invoice being sent
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
 
@@ -51,7 +53,7 @@ export default function Invoices({ user }) {
 
   async function loadAll() {
     const [invRes, clientsRes, jobsRes] = await Promise.all([
-      supabase.from('invoices').select('*, clients(name, phone, email, address), invoice_line_items(*)').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
+      supabase.from('invoices').select('*, clients(name, phone, email, address, preferred_contact), invoice_line_items(*)').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
       supabase.from('jobs').select('id, title, date, price, client_id, status, clients(name)').eq('org_id', effectiveOrgId).eq('status', 'completed').is('invoice_id', null).order('date', { ascending: false }),
     ])
@@ -293,35 +295,30 @@ export default function Invoices({ user }) {
     loadAll()
   }
 
-  // ── Send invoice email ──
+  // ── Send invoice ──
 
-  async function sendInvoice(invoice) {
-    if (!invoice.clients?.email) {
-      showToast('Client has no email address', 'error')
-      return
+  async function ensureViewToken(invoice) {
+    let token = invoice.view_token
+    if (!token) {
+      token = crypto.randomUUID()
+      await supabase.from('invoices').update({ view_token: token }).eq('id', invoice.id)
     }
+    return token
+  }
+
+  async function sendInvoiceEmail(invoice) {
     setSending(true)
     try {
-      // Generate view token if missing
-      let token = invoice.view_token
-      if (!token) {
-        token = crypto.randomUUID()
-        await supabase.from('invoices').update({ view_token: token }).eq('id', invoice.id)
-      }
-
+      const token = await ensureViewToken(invoice)
       const { data: { session } } = await supabase.auth.getSession()
       const { data, error } = await supabase.functions.invoke('send-email', {
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { type: 'invoice', invoice_id: invoice.id },
       })
-
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
-
-      if (invoice.status === 'draft') {
-        await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
-      }
-
-      showToast(`Invoice sent to ${invoice.clients.email}`)
+      if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      showToast(`Invoice emailed to ${invoice.clients.email}`)
+      setDeliveryModal(null)
       loadAll()
       setSelectedInvoice(prev => prev ? { ...prev, status: 'sent', view_token: token } : prev)
     } catch (err) {
@@ -329,6 +326,42 @@ export default function Invoices({ user }) {
     } finally {
       setSending(false)
     }
+  }
+
+  async function sendInvoiceSms(invoice) {
+    setSending(true)
+    try {
+      const token = await ensureViewToken(invoice)
+      const firstName = invoice.clients.name.split(' ')[0]
+      const orgName = user.organizations?.name || ''
+      const link = `https://www.timelyops.com/invoice/${token}`
+      const duePart = invoice.due_date ? ` due ${new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
+      const message = `Hi ${firstName}, you have an invoice from ${orgName} for $${Number(invoice.total).toFixed(2)}${duePart}. View: ${link}`
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        body: { to: invoice.clients.phone, message },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
+      if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      showToast(`Invoice sent via SMS to ${invoice.clients.phone}`)
+      setDeliveryModal(null)
+      loadAll()
+      setSelectedInvoice(prev => prev ? { ...prev, status: 'sent', view_token: token } : prev)
+    } catch (err) {
+      showToast(err.message || 'Failed to send SMS', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function copyInvoiceLink(invoice) {
+    const token = await ensureViewToken(invoice)
+    const link = `https://www.timelyops.com/invoice/${token}`
+    await navigator.clipboard.writeText(link)
+    if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+    showToast('Link copied! Paste it in WhatsApp or text.')
+    setDeliveryModal(null)
+    loadAll()
+    setSelectedInvoice(prev => prev ? { ...prev, status: 'sent', view_token: token } : prev)
   }
 
   // ── Status update ──
@@ -708,12 +741,11 @@ export default function Invoices({ user }) {
                   <button onClick={() => updateStatus(selectedInvoice, 'sent')} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Mark as Sent</button>
                 </div>
                 <button
-                  onClick={() => sendInvoice(selectedInvoice)}
-                  disabled={sending}
-                  className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setDeliveryModal(selectedInvoice)}
+                  className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors flex items-center justify-center gap-2"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  {sending ? 'Sending…' : 'Send Invoice'}
+                  Send Invoice
                 </button>
               </div>
             )}
@@ -721,12 +753,11 @@ export default function Invoices({ user }) {
             {(selectedInvoice.status === 'sent' || selectedInvoice.status === 'overdue') && !showPayment && (
               <div className="space-y-2">
                 <button
-                  onClick={() => sendInvoice(selectedInvoice)}
-                  disabled={sending}
-                  className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setDeliveryModal(selectedInvoice)}
+                  className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors flex items-center justify-center gap-2"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  {sending ? 'Sending…' : 'Resend Invoice'}
+                  Resend Invoice
                 </button>
                 <button onClick={() => { setPayAmount(String(selectedInvoice.total)); setPayMethod('cash'); setShowPayment(true) }} className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
                   Record Payment →
@@ -889,6 +920,20 @@ export default function Invoices({ user }) {
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* Delivery picker */}
+      {deliveryModal && (
+        <DeliveryModal
+          client={deliveryModal.clients}
+          publicUrl={`https://www.timelyops.com/invoice/${deliveryModal.view_token}`}
+          label="Invoice"
+          sending={sending}
+          onEmail={() => sendInvoiceEmail(deliveryModal)}
+          onSms={() => sendInvoiceSms(deliveryModal)}
+          onCopyLink={() => copyInvoiceLink(deliveryModal)}
+          onClose={() => setDeliveryModal(null)}
+        />
       )}
     </div>
   )

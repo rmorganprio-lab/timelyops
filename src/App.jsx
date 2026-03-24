@@ -20,6 +20,7 @@ import AdminUsers from './pages/admin/AdminUsers'
 import AdminAudit from './pages/admin/AdminAudit'
 import QuoteApproval from './pages/QuoteApproval'
 import InvoiceView from './pages/InvoiceView'
+import PaymentReceipt from './pages/PaymentReceipt'
 
 // Sends unauthenticated visitors to the static landing page
 function LandingRedirect() {
@@ -65,6 +66,7 @@ function AppRoutes({ user, session }) {
           {/* Public token-based pages — no auth required */}
           <Route path="/approve/:token" element={<QuoteApproval />} />
           <Route path="/invoice/:token" element={<InvoiceView />} />
+          <Route path="/receipt/:token" element={<PaymentReceipt />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

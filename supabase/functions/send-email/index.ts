@@ -490,6 +490,7 @@ serve(async (req) => {
       subject,
       resend_message_id: resendData.id || null,
       status: 'sent',
+      channel: 'email',
     })
 
     return new Response(JSON.stringify({ success: true, message_id: resendData.id }), {

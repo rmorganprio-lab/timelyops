@@ -5,8 +5,11 @@ import { CLIENT_TEMPLATE, validateClientRows, normalizePhone } from '../lib/csv'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 
 const emptyClient = {
-  name: '', email: '', phone: '', address: '', notes: '', tags: [], status: 'active',
+  name: '', email: '', phone: '', address: '', notes: '', tags: [], status: 'active', preferred_contact: 'sms',
 }
+
+const contactOptions = ['email', 'sms', 'whatsapp', 'phone']
+const contactLabels = { email: 'Email', sms: 'SMS', whatsapp: 'WhatsApp', phone: 'Phone call' }
 
 const emptyProperty = {
   property_type: 'residential', bedrooms: '', bathrooms: '', square_footage: '',
@@ -80,6 +83,7 @@ export default function Clients({ user }) {
       notes: client.notes || '',
       tags: client.tags || [],
       status: client.status || 'active',
+      preferred_contact: client.preferred_contact || (client.email ? 'email' : 'sms'),
     })
     const prop = client.client_properties?.[0] || emptyProperty
     setPropertyForm({
@@ -116,10 +120,15 @@ export default function Clients({ user }) {
     setSaving(true)
 
     if (modal === 'add') {
+      // Auto-detect preferred_contact if still at default
+      const preferred = form.preferred_contact === 'sms' && form.email
+        ? 'email'
+        : form.preferred_contact
+
       // Create client
       const { data: newClient, error } = await supabase
         .from('clients')
-        .insert({ ...form, org_id: effectiveOrgId })
+        .insert({ ...form, preferred_contact: preferred, org_id: effectiveOrgId })
         .select()
         .single()
 
@@ -214,6 +223,10 @@ export default function Clients({ user }) {
         if (existing?.length > 0) { skipped++; continue }
       }
 
+      const csvPreferred = row.preferred_contact?.toLowerCase()
+      const validPreferred = ['email', 'sms', 'whatsapp', 'phone'].includes(csvPreferred) ? csvPreferred : null
+      const autoPreferred = row.email ? 'email' : (row.phone ? 'sms' : 'sms')
+
       const { data: newClient } = await supabase.from('clients').insert({
         org_id: effectiveOrgId,
         name: row.name,
@@ -223,6 +236,7 @@ export default function Clients({ user }) {
         notes: row.notes || null,
         tags: row.tags ? row.tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : [],
         status: (row.status || 'active').toLowerCase(),
+        preferred_contact: validPreferred || autoPreferred,
       }).select().single()
 
       if (newClient) {
@@ -537,6 +551,18 @@ export default function Clients({ user }) {
               </div>
               <Field label="Address" value={form.address} onChange={v => setForm(f => ({ ...f, address: v }))} placeholder="Full address" />
               <Field label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} type="select" options={statusOptions} />
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1">Preferred Contact Method</label>
+                <select
+                  value={form.preferred_contact}
+                  onChange={e => setForm(f => ({ ...f, preferred_contact: e.target.value }))}
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+                >
+                  {contactOptions.map(o => (
+                    <option key={o} value={o}>{contactLabels[o]}</option>
+                  ))}
+                </select>
+              </div>
             </FormSection>
 
             {/* Property Profile */}

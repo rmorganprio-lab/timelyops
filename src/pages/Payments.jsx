@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
 import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
+import DeliveryModal from '../components/DeliveryModal'
 
 const METHODS = ['cash', 'venmo', 'zelle', 'card', 'bank_transfer', 'check', 'other']
 
@@ -41,6 +42,7 @@ export default function Payments({ user }) {
   const [selectedPayment, setSelectedPayment] = useState(null)
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
+  const [deliveryModal, setDeliveryModal] = useState(null)
   const [clientJobs, setClientJobs] = useState([])
   const [filter, setFilter] = useState({ method: 'all', client: 'all', period: 'all' })
   const [search, setSearch] = useState('')
@@ -49,7 +51,7 @@ export default function Payments({ user }) {
 
   async function loadAll() {
     const [paymentsRes, clientsRes, invoicesRes] = await Promise.all([
-      supabase.from('payments').select('*, clients(name, email), invoices(invoice_number, total)').eq('org_id', effectiveOrgId).order('date', { ascending: false }),
+      supabase.from('payments').select('*, clients(name, email, phone, preferred_contact), invoices(invoice_number, total)').eq('org_id', effectiveOrgId).order('date', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
       supabase.from('invoices').select('id, invoice_number, total, status, client_id, clients(name)').eq('org_id', effectiveOrgId).in('status', ['sent', 'overdue']).order('created_at', { ascending: false }),
     ])
@@ -185,13 +187,16 @@ export default function Payments({ user }) {
     loadAll()
   }
 
-  // ── Send receipt email ──
+  // ── Receipt delivery ──
 
-  async function sendReceipt(payment) {
-    if (!payment.clients?.email) {
-      showToast('Client has no email address', 'error')
-      return
-    }
+  async function ensurePaymentToken(payment) {
+    if (payment.view_token) return payment.view_token
+    const token = crypto.randomUUID()
+    await supabase.from('payments').update({ view_token: token }).eq('id', payment.id)
+    return token
+  }
+
+  async function sendReceiptEmail(payment) {
     setSending(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -201,11 +206,43 @@ export default function Payments({ user }) {
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
       showToast(`Receipt sent to ${payment.clients.email}`)
+      setDeliveryModal(null)
     } catch (err) {
       showToast(err.message || 'Failed to send receipt', 'error')
     } finally {
       setSending(false)
     }
+  }
+
+  async function sendReceiptSms(payment) {
+    setSending(true)
+    try {
+      const token = await ensurePaymentToken(payment)
+      const receiptUrl = `${window.location.origin}/receipt/${token}`
+      const clientName = payment.clients?.name || 'there'
+      const message = `Hi ${clientName}, your payment receipt is ready: ${receiptUrl}`
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { to: payment.clients.phone, message },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
+      showToast(`Receipt sent via SMS to ${payment.clients.phone}`)
+      setDeliveryModal(null)
+    } catch (err) {
+      showToast(err.message || 'Failed to send SMS', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function copyReceiptLink(payment) {
+    const token = await ensurePaymentToken(payment)
+    const url = `${window.location.origin}/receipt/${token}`
+    await navigator.clipboard.writeText(url)
+    showToast('Receipt link copied to clipboard')
+    setDeliveryModal(null)
+    loadAll()
   }
 
   // ── Delete ──
@@ -377,12 +414,11 @@ export default function Payments({ user }) {
 
           <div className="space-y-2 pt-4 border-t border-stone-200">
             <button
-              onClick={() => sendReceipt(selectedPayment)}
-              disabled={sending}
-              className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              onClick={() => setDeliveryModal(selectedPayment)}
+              className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors flex items-center justify-center gap-2"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-              {sending ? 'Sending…' : 'Send Receipt'}
+              Send Receipt
             </button>
             <div className="flex gap-3">
               <button onClick={() => openEdit(selectedPayment)} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200">Edit</button>
@@ -390,6 +426,20 @@ export default function Payments({ user }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* ── Delivery Modal ── */}
+      {deliveryModal && (
+        <DeliveryModal
+          client={deliveryModal.clients}
+          publicUrl={deliveryModal.view_token ? `${window.location.origin}/receipt/${deliveryModal.view_token}` : null}
+          label="Receipt"
+          sending={sending}
+          onEmail={() => sendReceiptEmail(deliveryModal)}
+          onSms={() => sendReceiptSms(deliveryModal)}
+          onCopyLink={() => copyReceiptLink(deliveryModal)}
+          onClose={() => setDeliveryModal(null)}
+        />
       )}
 
       {/* ── Add/Edit Payment Modal ── */}

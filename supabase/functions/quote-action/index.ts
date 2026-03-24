@@ -324,6 +324,32 @@ serve(async (req) => {
       })
     }
 
+    // ── get_receipt ──────────────────────────────────────────────
+    if (action === 'get_receipt') {
+      const { data: payment, error } = await supabase
+        .from('payments')
+        .select(`
+          id, amount, method, date, view_token,
+          clients(id, name),
+          invoices(id, invoice_number, total),
+          organizations(id, name)
+        `)
+        .eq('view_token', token)
+        .single()
+
+      console.log('[quote-action] get_receipt result:', JSON.stringify({ data: !!payment, error }))
+      if (error || !payment) {
+        return new Response(JSON.stringify({ error: 'Receipt not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      return new Response(JSON.stringify({ receipt: payment }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     return new Response(JSON.stringify({ error: 'Unknown action' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

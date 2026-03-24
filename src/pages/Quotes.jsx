@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
 import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
+import DeliveryModal from '../components/DeliveryModal'
 
 const statusColors = {
   draft: 'bg-stone-100 text-stone-600',
@@ -34,6 +35,7 @@ export default function Quotes({ user }) {
   const [selectedQuote, setSelectedQuote] = useState(null)
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
+  const [deliveryModal, setDeliveryModal] = useState(null) // quote being sent
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
 
@@ -60,7 +62,7 @@ export default function Quotes({ user }) {
 
   async function loadAll() {
     const [quotesRes, clientsRes, typesRes, matrixRes, workersRes] = await Promise.all([
-      supabase.from('quotes').select('*, clients(name, phone, email, address), quote_line_items(*)').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
+      supabase.from('quotes').select('*, clients(name, phone, email, address, preferred_contact), quote_line_items(*)').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
       supabase.from('clients').select('*, client_properties(*)').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
       supabase.from('service_types').select('*').eq('org_id', effectiveOrgId).eq('is_active', true).order('name'),
       supabase.from('pricing_matrix').select('*').eq('org_id', effectiveOrgId),
@@ -353,36 +355,30 @@ export default function Quotes({ user }) {
     loadAll()
   }
 
-  // ── Send quote email ──
+  // ── Send quote ──
 
-  async function sendQuote(quote) {
-    if (!quote.clients?.email) {
-      showToast('Client has no email address', 'error')
-      return
+  async function ensureApprovalToken(quote) {
+    let token = quote.approval_token
+    if (!token) {
+      token = crypto.randomUUID()
+      await supabase.from('quotes').update({ approval_token: token }).eq('id', quote.id)
     }
+    return token
+  }
+
+  async function sendQuoteEmail(quote) {
     setSending(true)
     try {
-      // Generate approval token if missing
-      let token = quote.approval_token
-      if (!token) {
-        token = crypto.randomUUID()
-        await supabase.from('quotes').update({ approval_token: token }).eq('id', quote.id)
-      }
-
+      const token = await ensureApprovalToken(quote)
       const { data: { session } } = await supabase.auth.getSession()
       const { data, error } = await supabase.functions.invoke('send-email', {
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { type: 'quote', quote_id: quote.id },
       })
-
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
-
-      // Update status to sent if still draft
-      if (quote.status === 'draft') {
-        await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
-      }
-
-      showToast(`Quote sent to ${quote.clients.email}`)
+      if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      showToast(`Quote emailed to ${quote.clients.email}`)
+      setDeliveryModal(null)
       loadAll()
       setSelectedQuote(prev => prev ? { ...prev, status: 'sent', approval_token: token } : prev)
     } catch (err) {
@@ -390,6 +386,41 @@ export default function Quotes({ user }) {
     } finally {
       setSending(false)
     }
+  }
+
+  async function sendQuoteSms(quote) {
+    setSending(true)
+    try {
+      const token = await ensureApprovalToken(quote)
+      const firstName = quote.clients.name.split(' ')[0]
+      const orgName = user.organizations?.name || ''
+      const link = `https://www.timelyops.com/approve/${token}`
+      const message = `Hi ${firstName}, ${orgName} sent you a quote for $${Number(quote.total).toFixed(2)}. View and approve: ${link}`
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        body: { to: quote.clients.phone, message },
+      })
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
+      if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      showToast(`Quote sent via SMS to ${quote.clients.phone}`)
+      setDeliveryModal(null)
+      loadAll()
+      setSelectedQuote(prev => prev ? { ...prev, status: 'sent', approval_token: token } : prev)
+    } catch (err) {
+      showToast(err.message || 'Failed to send SMS', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function copyQuoteLink(quote) {
+    const token = await ensureApprovalToken(quote)
+    const link = `https://www.timelyops.com/approve/${token}`
+    await navigator.clipboard.writeText(link)
+    if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+    showToast('Link copied! Paste it in WhatsApp or text.')
+    setDeliveryModal(null)
+    loadAll()
+    setSelectedQuote(prev => prev ? { ...prev, status: 'sent', approval_token: token } : prev)
   }
 
   // ── Status update ──
@@ -640,12 +671,11 @@ export default function Quotes({ user }) {
                   <button onClick={() => updateStatus(selectedQuote, 'sent')} className="flex-1 py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors">Mark as Sent</button>
                 </div>
                 <button
-                  onClick={() => sendQuote(selectedQuote)}
-                  disabled={sending}
-                  className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setDeliveryModal(selectedQuote)}
+                  className="w-full py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors flex items-center justify-center gap-2"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  {sending ? 'Sending…' : 'Send Quote'}
+                  Send Quote
                 </button>
               </div>
             )}
@@ -656,12 +686,11 @@ export default function Quotes({ user }) {
                   <button onClick={() => updateStatus(selectedQuote, 'declined')} className="flex-1 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors">Declined</button>
                 </div>
                 <button
-                  onClick={() => sendQuote(selectedQuote)}
-                  disabled={sending}
-                  className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  onClick={() => setDeliveryModal(selectedQuote)}
+                  className="w-full py-2.5 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors flex items-center justify-center gap-2"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  {sending ? 'Sending…' : 'Resend Quote'}
+                  Resend Quote
                 </button>
               </div>
             )}
@@ -904,6 +933,20 @@ export default function Quotes({ user }) {
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* Delivery picker */}
+      {deliveryModal && (
+        <DeliveryModal
+          client={deliveryModal.clients}
+          publicUrl={`https://www.timelyops.com/approve/${deliveryModal.approval_token}`}
+          label="Quote"
+          sending={sending}
+          onEmail={() => sendQuoteEmail(deliveryModal)}
+          onSms={() => sendQuoteSms(deliveryModal)}
+          onCopyLink={() => copyQuoteLink(deliveryModal)}
+          onClose={() => setDeliveryModal(null)}
+        />
       )}
     </div>
   )

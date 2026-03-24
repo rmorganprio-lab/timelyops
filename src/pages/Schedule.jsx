@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { todayInTimezone, toDateStr, formatDateFull, formatTime, formatTimestamp, getTimezoneAbbr, nowInTimezone } from '../lib/timezone'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -22,6 +23,7 @@ const emptyJob = {
 
 export default function Schedule({ user }) {
   const { adminViewOrg } = useAdminOrg()
+  const { showToast } = useToast()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
   const tz = user?.organizations?.settings?.timezone || 'America/Los_Angeles'
   const timeFormat = user?.organizations?.settings?.time_format || '12h'
@@ -52,7 +54,7 @@ export default function Schedule({ user }) {
   async function loadAll() {
     const [jobsRes, clientsRes, workersRes, typesRes] = await Promise.all([
       supabase.from('jobs').select('*, clients(name), job_assignments(user_id)').eq('org_id', effectiveOrgId).order('date').order('start_time'),
-      supabase.from('clients').select('id, name').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
+      supabase.from('clients').select('id, name, email, phone, preferred_contact').eq('org_id', effectiveOrgId).eq('status', 'active').order('name'),
       supabase.from('users').select('id, name, availability').eq('org_id', effectiveOrgId).in('role', ['ceo', 'manager', 'worker']).order('name'),
       supabase.from('service_types').select('*').eq('org_id', effectiveOrgId).eq('is_active', true).order('name'),
     ])
@@ -288,7 +290,9 @@ export default function Schedule({ user }) {
     if (!paymentModal || !payAmount || Number(payAmount) <= 0) return
     setPaymentSaving(true)
     const tz_date = todayInTimezone(tz)
-    await supabase.from('payments').insert({
+    const view_token = crypto.randomUUID()
+
+    const { data: newPayment } = await supabase.from('payments').insert({
       org_id: effectiveOrgId,
       client_id: paymentModal.client_id,
       job_id: paymentModal.id,
@@ -296,7 +300,9 @@ export default function Schedule({ user }) {
       method: payMethod,
       date: tz_date,
       notes: `Payment for ${paymentModal.title}`,
-    })
+      view_token,
+    }).select('id').single()
+
     await supabase.from('client_timeline').insert({
       org_id: effectiveOrgId,
       client_id: paymentModal.client_id,
@@ -304,6 +310,36 @@ export default function Schedule({ user }) {
       summary: `$${Number(payAmount).toFixed(2)} received via ${payMethod}`,
       created_by: user.id,
     })
+
+    // Auto-send receipt based on client's preferred_contact
+    if (newPayment?.id) {
+      const client = clients.find(c => c.id === paymentModal.client_id)
+      const preferred = client?.preferred_contact || 'sms'
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if ((preferred === 'email' || (!client?.phone && client?.email)) && client?.email) {
+          await supabase.functions.invoke('send-email', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { type: 'payment_receipt', payment_id: newPayment.id },
+          })
+          showToast(`Receipt sent to ${client.email}`)
+        } else if ((preferred === 'sms' || preferred === 'whatsapp' || preferred === 'phone') && client?.phone) {
+          const receiptUrl = `${window.location.origin}/receipt/${view_token}`
+          const firstName = client.name?.split(' ')[0] || 'there'
+          const message = `Hi ${firstName}, your payment receipt is ready: ${receiptUrl}`
+          await supabase.functions.invoke('send-sms', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: { to: client.phone, message },
+          })
+          showToast(`Receipt sent via SMS to ${client.phone}`)
+        }
+      } catch {
+        // Best effort — don't block completion on receipt send failure
+      }
+    }
+
     setPaymentSaving(false)
     setPaymentModal(null)
     loadAll()

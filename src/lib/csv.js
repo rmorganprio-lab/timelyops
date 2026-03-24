@@ -102,7 +102,7 @@ export function downloadCSV(filename, csvContent) {
  */
 export const CLIENT_TEMPLATE = {
   headers: [
-    'name', 'phone', 'email', 'address', 'status', 'tags', 'notes',
+    'name', 'phone', 'email', 'address', 'status', 'preferred_contact', 'tags', 'notes',
     'property_type', 'bedrooms', 'bathrooms', 'square_footage',
     'alarm_code', 'key_lockbox', 'pet_details', 'parking', 'supplies_location', 'special_notes'
   ],
@@ -113,6 +113,7 @@ export const CLIENT_TEMPLATE = {
     email: 'jane@email.com',
     address: '123 Main St, San Jose, CA 95123',
     status: 'active',
+    preferred_contact: 'email',
     tags: 'weekly, referral',
     notes: 'Prefers morning appointments',
     property_type: 'residential',

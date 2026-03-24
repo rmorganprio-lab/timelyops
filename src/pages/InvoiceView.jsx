@@ -113,7 +113,7 @@ export default function InvoiceView() {
                       <td className="py-2 text-stone-800">{item.description}</td>
                       <td className="py-2 text-stone-500 text-right">{item.quantity}</td>
                       <td className="py-2 text-stone-500 text-right">{fmtCurrency(item.unit_price)}</td>
-                      <td className="py-2 text-stone-800 font-medium text-right">{fmtCurrency(item.amount)}</td>
+                      <td className="py-2 text-stone-800 font-medium text-right">{fmtCurrency(item.total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -127,9 +127,9 @@ export default function InvoiceView() {
                   <span>Subtotal</span>
                   <span>{fmtCurrency(invoice.subtotal)}</span>
                 </div>
-                {invoice.tax_rate > 0 && (
+                {invoice.tax_amount > 0 && (
                   <div className="flex justify-between text-stone-500">
-                    <span>Tax ({invoice.tax_rate}%)</span>
+                    <span>Tax</span>
                     <span>{fmtCurrency(invoice.tax_amount)}</span>
                   </div>
                 )}
