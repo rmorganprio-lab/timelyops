@@ -6,6 +6,7 @@ import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
 import DeliveryModal from '../components/DeliveryModal'
 import { formatCurrency } from '../lib/formatCurrency'
 import { formatName } from '../lib/formatAddress'
+import { logAudit } from '../lib/auditLog'
 
 // Legacy color map for known method names (case-insensitive fallback)
 const METHOD_COLORS = {
@@ -183,7 +184,7 @@ export default function Payments({ user }) {
     }
 
     if (modal === 'add') {
-      const { error } = await supabase.from('payments').insert(paymentData)
+      const { data: newPayment, error } = await supabase.from('payments').insert(paymentData).select('id').single()
       if (error) {
         console.error('Failed to record payment:', error)
         showToast('Failed to save changes. Please try again.', 'error')
@@ -199,6 +200,14 @@ export default function Payments({ user }) {
           await supabase.from('invoices').update({ status: 'paid' }).eq('id', form.invoice_id)
         }
       }
+      await logAudit({
+        supabase, user, adminViewOrg,
+        action: 'create',
+        entityType: 'payment',
+        entityId: newPayment?.id,
+        changes: { amount: paymentData.amount, method: paymentData.method, invoice_id: paymentData.invoice_id, job_id: paymentData.job_id },
+        metadata: { source: 'payments_page' },
+      })
       // Log to client timeline
       await supabase.from('client_timeline').insert({
         org_id: effectiveOrgId,

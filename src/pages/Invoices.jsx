@@ -8,6 +8,7 @@ import { jsPDF } from 'jspdf'
 import DeliveryModal from '../components/DeliveryModal'
 import { formatCurrency } from '../lib/formatCurrency'
 import { formatName, formatAddress, formatAddressLines } from '../lib/formatAddress'
+import { logAudit } from '../lib/auditLog'
 
 const statusColors = {
   draft: 'bg-stone-100 text-stone-600',
@@ -274,6 +275,13 @@ export default function Invoices({ user }) {
           summary: `Invoice ${invoiceData.invoice_number} created for ${formatCurrency(formTotal, currencySymbol)}`,
           created_by: user.id,
         })
+        await logAudit({
+          supabase, user, adminViewOrg,
+          action: 'create',
+          entityType: 'invoice',
+          entityId: invoiceId,
+          changes: { invoice_number: invoiceData.invoice_number, total: formTotal, status: formStatus },
+        })
       }
     } else {
       const { error: invoiceError } = await supabase.from('invoices').update(invoiceData).eq('id', selectedInvoice.id)
@@ -358,7 +366,10 @@ export default function Invoices({ user }) {
         body: { type: 'invoice', invoice_id: invoice.id },
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
-      if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      if (invoice.status === 'draft') {
+        await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+        await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'email' } })
+      }
       showToast(`Invoice emailed to ${invoice.clients.email}`)
       setDeliveryModal(null)
       loadAll()
@@ -383,7 +394,10 @@ export default function Invoices({ user }) {
         body: { to: invoice.clients.phone, message },
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
-      if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      if (invoice.status === 'draft') {
+        await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+        await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'sms' } })
+      }
       showToast(`Invoice sent via SMS to ${invoice.clients.phone}`)
       setDeliveryModal(null)
       loadAll()
@@ -399,7 +413,10 @@ export default function Invoices({ user }) {
     const token = await ensureViewToken(invoice)
     const link = `https://www.timelyops.com/invoice/${token}`
     await navigator.clipboard.writeText(link)
-    if (invoice.status === 'draft') await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+    if (invoice.status === 'draft') {
+      await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'link' } })
+    }
     showToast('Link copied! Paste it in WhatsApp or text.')
     setDeliveryModal(null)
     loadAll()
@@ -415,6 +432,14 @@ export default function Invoices({ user }) {
       showToast('Something went wrong. Please try again.', 'error')
       return
     }
+
+    await logAudit({
+      supabase, user, adminViewOrg,
+      action: 'status_change',
+      entityType: 'invoice',
+      entityId: invoice.id,
+      changes: { status: { from: invoice.status, to: newStatus } },
+    })
 
     if (newStatus === 'sent') {
       await supabase.from('client_timeline').insert({
@@ -436,7 +461,7 @@ export default function Invoices({ user }) {
     if (!payAmount || Number(payAmount) <= 0) return
     setPaymentSaving(true)
 
-    const { error: payError } = await supabase.from('payments').insert({
+    const { data: newInvoicePayment, error: payError } = await supabase.from('payments').insert({
       org_id: effectiveOrgId,
       client_id: selectedInvoice.client_id,
       invoice_id: selectedInvoice.id,
@@ -444,7 +469,7 @@ export default function Invoices({ user }) {
       method: payMethod,
       date: todayInTimezone(tz),
       notes: `Payment for invoice ${selectedInvoice.invoice_number}`,
-    })
+    }).select('id').single()
 
     if (payError) {
       console.error('Failed to record payment:', payError)
@@ -452,6 +477,15 @@ export default function Invoices({ user }) {
       setPaymentSaving(false)
       return
     }
+
+    await logAudit({
+      supabase, user, adminViewOrg,
+      action: 'create',
+      entityType: 'payment',
+      entityId: newInvoicePayment?.id,
+      changes: { amount: Number(payAmount), method: payMethod, invoice_id: selectedInvoice.id },
+      metadata: { source: 'invoice_view' },
+    })
 
     // Check if fully paid
     const { data: allPayments } = await supabase.from('payments').select('amount').eq('invoice_id', selectedInvoice.id)

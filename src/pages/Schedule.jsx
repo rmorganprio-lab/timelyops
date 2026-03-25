@@ -6,6 +6,7 @@ import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
 import { formatCurrency } from '../lib/formatCurrency'
 import { formatName, formatAddress } from '../lib/formatAddress'
+import { logAudit } from '../lib/auditLog'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -417,6 +418,15 @@ export default function Schedule({ user }) {
       setPaymentSaving(false)
       return
     }
+
+    await logAudit({
+      supabase, user, adminViewOrg,
+      action: 'create',
+      entityType: 'payment',
+      entityId: newPayment?.id,
+      changes: { amount: Number(payAmount), method: payMethod, job_id: paymentModal.id },
+      metadata: { source: 'job_completion' },
+    })
 
     await supabase.from('client_timeline').insert({
       org_id: effectiveOrgId,

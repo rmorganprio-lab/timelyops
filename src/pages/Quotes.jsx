@@ -7,6 +7,7 @@ import { todayInTimezone, formatDate, getTimezoneAbbr } from '../lib/timezone'
 import DeliveryModal from '../components/DeliveryModal'
 import { formatCurrency } from '../lib/formatCurrency'
 import { formatName } from '../lib/formatAddress'
+import { logAudit } from '../lib/auditLog'
 
 const statusColors = {
   draft: 'bg-stone-100 text-stone-600',
@@ -380,6 +381,13 @@ export default function Quotes({ user }) {
           event_type: 'quote', summary: `Quote ${quoteData.quote_number} created for ${formatCurrency(formTotal, currencySymbol)}`,
           created_by: user.id,
         })
+        await logAudit({
+          supabase, user, adminViewOrg,
+          action: 'create',
+          entityType: 'quote',
+          entityId: quoteId,
+          changes: { quote_number: quoteData.quote_number, total: formTotal, status: formStatus },
+        })
       }
     } else {
       const { error: quoteError } = await supabase.from('quotes').update(quoteData).eq('id', selectedQuote.id)
@@ -444,7 +452,10 @@ export default function Quotes({ user }) {
         body: { type: 'quote', quote_id: quote.id },
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
-      if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      if (quote.status === 'draft') {
+        await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+        await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'quote', entityId: quote.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'email' } })
+      }
       showToast(`Quote emailed to ${quote.clients.email}`)
       setDeliveryModal(null)
       loadAll()
@@ -468,7 +479,10 @@ export default function Quotes({ user }) {
         body: { to: quote.clients.phone, message },
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
-      if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      if (quote.status === 'draft') {
+        await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+        await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'quote', entityId: quote.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'sms' } })
+      }
       showToast(`Quote sent via SMS to ${quote.clients.phone}`)
       setDeliveryModal(null)
       loadAll()
@@ -484,7 +498,10 @@ export default function Quotes({ user }) {
     const token = await ensureApprovalToken(quote)
     const link = `https://www.timelyops.com/approve/${token}`
     await navigator.clipboard.writeText(link)
-    if (quote.status === 'draft') await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+    if (quote.status === 'draft') {
+      await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
+      await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'quote', entityId: quote.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'link' } })
+    }
     showToast('Link copied! Paste it in WhatsApp or text.')
     setDeliveryModal(null)
     loadAll()
@@ -500,6 +517,14 @@ export default function Quotes({ user }) {
       showToast('Something went wrong. Please try again.', 'error')
       return
     }
+
+    await logAudit({
+      supabase, user, adminViewOrg,
+      action: 'status_change',
+      entityType: 'quote',
+      entityId: quote.id,
+      changes: { status: { from: quote.status, to: newStatus } },
+    })
 
     if (newStatus === 'approved') {
       await supabase.from('client_timeline').insert({
