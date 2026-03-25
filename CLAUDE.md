@@ -1,46 +1,111 @@
-# AllBookd — Claude Code Project Context
+# TimelyOps — Claude Code Project Context
 
 ## What this is
-AllBookd is a multi-tenant business management SaaS for small service businesses, starting with housecleaning. It is being built by a solo founder (Rich) with a stealth first customer already lined up.
+TimelyOps is a multi-tenant business management SaaS for small service businesses, starting with housecleaning. Built by a solo founder (Rich) with a stealth first customer (Hilda) already lined up on the Growth tier.
+
+The product name in branding is **TimelyOps**. The GitHub repo and Supabase project are named `allbookd` (previous name — do not rename).
 
 ## Tech stack
-- **Frontend:** React + Vite + Tailwind CSS
-- **Backend/DB:** Supabase (Postgres, Auth, Storage)
-- **Hosting:** Vercel
-- **SMS/Voice:** Twilio
-- **AI:** Anthropic Claude API (claude-sonnet-4-6)
-- **Auth:** Phone OTP via Twilio + Supabase
+- **Frontend:** React 19 + Vite 7 + Tailwind CSS 4 — JSX, not TypeScript
+- **Backend/DB:** Supabase (Postgres, Auth, RLS, Edge Functions)
+- **Hosting:** Vercel — `timelyops.com`, auto-deploy from `main`
+- **Email:** Resend API (`RESEND_API_KEY`) — from `notifications@timelyops.com`
+- **SMS:** Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`)
+- **Auth:** Supabase Auth — phone OTP via Twilio (primary), email magic link (fallback)
+- **Charts:** Recharts
+- **PDF:** jsPDF
+- **Excel export:** XLSX (SheetJS)
 
-## Current state
-- Supabase project is live with full database schema deployed
-- React app scaffolding is live on Vercel
-- Phone OTP authentication is implemented
-- **Known open issue:** Twilio trial account blocks SMS to Netherlands numbers — Rich is based in NL and tests from a NL number
+Not yet integrated (planned): Claude API (Growth tier AI agents), Stripe (online payments), QuickBooks.
 
-## Pricing tiers
-- **Starter** $79/mo — core scheduling, client management, invoicing
-- **Professional** $119/mo — adds online booking, automated reminders
-- **Growth** $249/mo — adds AI agent system (email, WhatsApp, phone/voicemail via Claude API + Twilio)
-- **Add-ons** available; $500 implementation fee for all new customers
-- Founding customer discount structure in place
+## Supabase project
+- **Project ID:** `vrssqhzzdhlqnptengju`
+- **URL:** `https://vrssqhzzdhlqnptengju.supabase.co`
+- **Anon key:** in `src/lib/supabase.js`
+- Deploy Edge Functions: `supabase functions deploy <name> --no-verify-jwt --project-ref vrssqhzzdhlqnptengju`
 
-## Key differentiator
-The Growth tier AI agent system — handles inbound/outbound client communication automatically via Claude API and Twilio. This is the primary competitive moat.
+## Multi-tenancy model
+- All user data is scoped by `org_id` on every table
+- RLS enforces org isolation — every SELECT/INSERT/UPDATE/DELETE policy checks `org_id = user_org_id()`
+- `user_org_id()` — SECURITY DEFINER function: `SELECT org_id FROM users WHERE id = auth.uid()`
+- `user_role()` — SECURITY DEFINER function: `SELECT role FROM users WHERE id = auth.uid()`
+- Platform admins (`is_platform_admin = true`) bypass RLS via a separate ALL policy
+- All data pages derive effective org via: `const effectiveOrgId = adminViewOrg?.id ?? user?.org_id`
 
 ## Architecture principles
-- Multi-tenant: all data scoped by `business_id`
-- Keep it simple and shippable — this is an MVP with a real first customer
-- Favour Supabase built-ins (RLS, auth, edge functions) over custom backend code
-- Don't over-engineer; Rich has ~12 months runway and is building solo
+- Keep it simple and shippable — MVP with a real first customer
+- Favour Supabase built-ins (RLS, auth, Edge Functions) over custom backend code
+- Don't over-engineer; Rich is building solo
+- Edge Functions for external service calls (Resend, Twilio) — never call third-party APIs from the frontend
+- Feature gating: `SubscriptionContext` + `<FeatureGate>` component + `hasFeature(slug)` — don't hard-code tier checks inline
+
+## File structure
+```
+src/
+  App.jsx               — routes, auth state, user loading
+  pages/
+    Dashboard.jsx
+    Clients.jsx
+    Workers.jsx
+    Schedule.jsx
+    Quotes.jsx
+    Invoices.jsx
+    Payments.jsx
+    Reports.jsx
+    Settings.jsx
+    Login.jsx
+    QuoteApproval.jsx   — public, no auth, /approve/:token
+    InvoiceView.jsx     — public, no auth, /invoice/:token
+    PaymentReceipt.jsx  — public, no auth, /receipt/:token
+    admin/
+      AdminDashboard.jsx
+      AdminOrgs.jsx
+      AdminUsers.jsx
+      AdminAudit.jsx
+  components/
+    Layout.jsx          — nav, mobile menu, admin banner
+    DeliveryModal.jsx   — email/SMS/copy-link picker
+    FeatureGate.jsx     — tier gate wrapper
+    CSVImport.jsx       — multi-step CSV import flow
+    ExportModal.jsx     — multi-table data export
+  lib/
+    supabase.js         — Supabase client
+    tiers.js            — tier/feature definitions, hasFeature()
+    csv.js              — parse, validate, template, download
+    timezone.js         — formatting, timezone math, US_TIMEZONES list
+    auditLog.js         — logAudit() helper
+  contexts/
+    SubscriptionContext.jsx
+    ToastContext.jsx    — showToast(message, type?, action?)
+    AdminOrgContext.jsx — admin org scoping
+supabase/functions/
+  send-email/           — Resend email, all 4 email types
+  send-sms/             — Twilio SMS
+  quote-action/         — public token actions + get_receipt
+  admin-update-auth-user/ — update Supabase auth credentials
+public/
+  landing.html          — static landing page
+  favicon.ico + PNGs    — favicons (committed to git)
+  site.webmanifest
+```
 
 ## Coding conventions
-- Use TypeScript
+- **JSX, not TypeScript** — files are `.jsx` / `.js`, not `.tsx` / `.ts`
 - Tailwind for all styling — no separate CSS files
-- Components in `/src/components`
-- Pages in `/src/pages`
-- Supabase client in `/src/lib/supabase.ts`
-- Keep components small and focused
-- Always consider multi-tenancy (business_id scoping) when touching DB queries
+- All data pages take `user` as a prop from App.jsx
+- Multi-tenancy: always filter by `org_id` in DB queries, use `effectiveOrgId` pattern
+- Toast notifications: `const { showToast } = useToast()` — never use `alert()`
+- Admin scoping: `const { adminViewOrg } = useAdminOrg()` — all pages that touch data must implement this
+- Error handling on Supabase writes: always capture `{ error }` and show a toast, never silent fail
+
+## Pricing tiers
+Defined in `src/lib/tiers.js`:
+- **Starter** $79/mo — dashboard, clients, workers, schedule, quotes, payments, invoices, basic reports
+- **Professional** $119/mo — adds reports export, automated reminders, job checklists, worker GPS check-in, auto review requests
+- **Growth** $249/mo — adds AI lead agents, client booking portal, QuickBooks sync, supply tracking
+- **Add-ons** available per `ADD_ONS` in tiers.js
+- $500 implementation fee for all new customers
+- Founding customer discount structure in place (Hilda)
 
 ## How to work with Rich
 - Be direct and skip the caveats — Rich has a strong technical background (20+ years supply chain and ops, comfortable with code)
