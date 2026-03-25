@@ -78,7 +78,7 @@ export default function Schedule({ user }) {
 
   async function loadAll() {
     const [jobsRes, clientsRes, workersRes, typesRes] = await Promise.all([
-      supabase.from('jobs').select('*, clients(name, first_name, last_name, address_line_1, address_line_2, city, state_province, postal_code, country, client_properties(*)), job_assignments(user_id)').eq('org_id', effectiveOrgId).order('date').order('start_time'),
+      supabase.from('jobs').select('*, clients(name, first_name, last_name, address_line_1, address_line_2, city, state_province, postal_code, country, client_properties(*)), job_assignments(user_id), payments(id)').eq('org_id', effectiveOrgId).order('date').order('start_time'),
       supabase.from('clients').select('id, first_name, last_name, name, email, phone, preferred_contact').eq('org_id', effectiveOrgId).eq('status', 'active').order('first_name'),
       supabase.from('users').select('id, name, availability').eq('org_id', effectiveOrgId).in('role', ['ceo', 'manager', 'worker']).order('name'),
       supabase.from('service_types').select('*').eq('org_id', effectiveOrgId).eq('is_active', true).order('name'),
@@ -663,6 +663,7 @@ export default function Schedule({ user }) {
             {selectedJob.notes && <InfoRow label="Notes" value={selectedJob.notes} />}
             {selectedJob.arrived_at && <InfoRow label="Arrived" value={formatTimestamp(selectedJob.arrived_at, tz, timeFormat)} />}
             {selectedJob.completed_at && <InfoRow label="Completed" value={formatTimestamp(selectedJob.completed_at, tz, timeFormat)} />}
+            {selectedJob.payments?.length > 0 && <InfoRow label="Payments" value={<span className="text-emerald-700">{selectedJob.payments.length} recorded</span>} />}
           </div>
 
           {selectedJob.job_assignments?.length > 0 && (
@@ -884,9 +885,15 @@ export default function Schedule({ user }) {
 
             <div>
               <label className="block text-xs font-medium text-stone-500 mb-1.5">Status</label>
-              <select value={form.status} onChange={e => setForm(f => ({...f, status: e.target.value}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 capitalize">
-                {['scheduled','in_progress','completed','cancelled'].map(s => <option key={s} value={s} className="capitalize">{s.replace('_',' ')}</option>)}
-              </select>
+              {selectedJob?.payments?.length > 0 && form.status === 'completed' ? (
+                <div className="px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-400">
+                  Completed — locked (payments recorded)
+                </div>
+              ) : (
+                <select value={form.status} onChange={e => setForm(f => ({...f, status: e.target.value}))} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 capitalize">
+                  {['scheduled','in_progress','completed','cancelled'].map(s => <option key={s} value={s} className="capitalize">{s.replace('_',' ')}</option>)}
+                </select>
+              )}
             </div>
 
             <div>

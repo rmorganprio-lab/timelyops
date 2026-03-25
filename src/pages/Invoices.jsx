@@ -36,7 +36,9 @@ export default function Invoices({ user }) {
   const [invoices, setInvoices] = useState([])
   const [clients, setClients] = useState([])
   const [completedJobs, setCompletedJobs] = useState([])
+  const [creditNotes, setCreditNotes] = useState([])
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState('invoices')
   const [modal, setModal] = useState(null)
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -50,6 +52,7 @@ export default function Invoices({ user }) {
   const [formLines, setFormLines] = useState([{ ...emptyLine }])
   const [formNotes, setFormNotes] = useState('')
   const [formDueDate, setFormDueDate] = useState('')
+  const [formIssueDate, setFormIssueDate] = useState('')
   const [formStatus, setFormStatus] = useState('draft')
 
   // Payment inline
@@ -74,10 +77,11 @@ export default function Invoices({ user }) {
   useEffect(() => { loadAll() }, [effectiveOrgId])
 
   async function loadAll() {
-    const [invRes, clientsRes, jobsRes] = await Promise.all([
+    const [invRes, clientsRes, jobsRes, cnRes] = await Promise.all([
       supabase.from('invoices').select('*, clients(first_name, last_name, name, phone, email, address_line_1, address_line_2, city, state_province, postal_code, country, address, preferred_contact), invoice_line_items(*)').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
       supabase.from('clients').select('id, name, first_name, last_name').eq('org_id', effectiveOrgId).eq('status', 'active').order('first_name'),
       supabase.from('jobs').select('id, title, date, price, client_id, status, clients(name)').eq('org_id', effectiveOrgId).eq('status', 'completed').is('invoice_id', null).order('date', { ascending: false }),
+      supabase.from('credit_notes').select('*, invoices(invoice_number, clients(first_name, last_name, name))').eq('org_id', effectiveOrgId).order('created_at', { ascending: false }),
     ])
     if (invRes.error) {
       console.error('Failed to load invoices:', invRes.error)
@@ -85,9 +89,11 @@ export default function Invoices({ user }) {
     }
     if (clientsRes.error) console.error('Failed to load clients for invoices:', clientsRes.error)
     if (jobsRes.error) console.error('Failed to load jobs for invoices:', jobsRes.error)
+    if (cnRes.error) console.error('Failed to load credit notes:', cnRes.error)
     setInvoices(invRes.data || [])
     setClients(clientsRes.data || [])
     setCompletedJobs(jobsRes.data || [])
+    setCreditNotes(cnRes.data || [])
     setLoading(false)
   }
 
@@ -169,6 +175,7 @@ export default function Invoices({ user }) {
     )
     setFormNotes(invoice.notes || '')
     setFormDueDate(invoice.due_date || '')
+    setFormIssueDate(invoice.issue_date || '')
     setFormStatus(invoice.status)
     setShowPayment(false)
     setErrors({})
@@ -263,7 +270,7 @@ export default function Invoices({ user }) {
       tax_amount: formTax,
       total: formTotal,
       status: formStatus,
-      issue_date: selectedInvoice?.issue_date || today,
+      issue_date: modal === 'edit' ? (formIssueDate || selectedInvoice?.issue_date || today) : today,
       due_date: formDueDate || null,
       notes: formNotes || null,
     }
@@ -378,7 +385,7 @@ export default function Invoices({ user }) {
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Send failed')
       if (invoice.status === 'draft') {
-        await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', invoice.id)
         await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'email' } })
       }
       showToast(`Invoice emailed to ${invoice.clients.email}`)
@@ -406,7 +413,7 @@ export default function Invoices({ user }) {
       })
       if (error || data?.error) throw new Error(error?.message || data?.error || 'SMS failed')
       if (invoice.status === 'draft') {
-        await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', invoice.id)
         await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'sms' } })
       }
       showToast(`Invoice sent via SMS to ${invoice.clients.phone}`)
@@ -425,7 +432,7 @@ export default function Invoices({ user }) {
     const link = `https://www.timelyops.com/invoice/${token}`
     await navigator.clipboard.writeText(link)
     if (invoice.status === 'draft') {
-      await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+      await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', invoice.id)
       await logAudit({ supabase, user, adminViewOrg, action: 'status_change', entityType: 'invoice', entityId: invoice.id, changes: { status: { from: 'draft', to: 'sent' } }, metadata: { channel: 'link' } })
     }
     showToast('Link copied! Paste it in WhatsApp or text.')
@@ -714,7 +721,7 @@ export default function Invoices({ user }) {
           </p>
         </div>
         <div className="flex gap-2">
-          {completedJobs.length > 0 && (
+          {tab === 'invoices' && completedJobs.length > 0 && (
             <div className="relative group">
               <button className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 text-sm font-medium rounded-xl hover:bg-blue-100 transition-colors">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -722,12 +729,24 @@ export default function Invoices({ user }) {
               </button>
             </div>
           )}
-          <button onClick={() => openAdd()} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New Invoice
-          </button>
+          {tab === 'invoices' && (
+            <button onClick={() => openAdd()} className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 transition-colors">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Invoice
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-stone-100 rounded-xl p-1 mb-6 w-fit">
+        <button onClick={() => setTab('invoices')} className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${tab === 'invoices' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>Invoices</button>
+        <button onClick={() => setTab('credit_notes')} className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${tab === 'credit_notes' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>
+          Credit Notes {creditNotes.length > 0 && <span className="ml-1 text-xs text-stone-400">({creditNotes.length})</span>}
+        </button>
+      </div>
+
+      {tab === 'invoices' ? (<>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -811,6 +830,41 @@ export default function Invoices({ user }) {
           </div>
         )}
       </div>
+
+      </>) : (
+
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+        {creditNotes.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-stone-400 text-sm">No credit notes yet. Create one from an invoice's detail view.</p>
+          </div>
+        ) : (
+          <div>
+            <div className="hidden md:grid grid-cols-12 gap-4 px-5 py-3 border-b border-stone-100 text-xs font-semibold text-stone-400 uppercase tracking-wider">
+              <div className="col-span-2">#</div>
+              <div className="col-span-2">Invoice</div>
+              <div className="col-span-3">Client</div>
+              <div className="col-span-2">Status</div>
+              <div className="col-span-1">Created</div>
+              <div className="col-span-2 text-right">Total</div>
+            </div>
+            {creditNotes.map(cn => (
+              <div key={cn.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 px-5 py-4 border-b border-stone-50 items-center">
+                <div className="md:col-span-2 text-xs font-mono text-stone-400">{cn.credit_note_number || '—'}</div>
+                <div className="md:col-span-2 text-xs text-stone-500">INV {cn.invoices?.invoice_number || '—'}</div>
+                <div className="md:col-span-3 font-medium text-stone-900 text-sm">{formatName(cn.invoices?.clients?.first_name, cn.invoices?.clients?.last_name) || cn.invoices?.clients?.name || '—'}</div>
+                <div className="md:col-span-2">
+                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${cn.status === 'applied' ? 'bg-emerald-100 text-emerald-700' : cn.status === 'draft' ? 'bg-stone-100 text-stone-600' : 'bg-blue-100 text-blue-700'}`}>{cn.status}</span>
+                </div>
+                <div className="md:col-span-1 text-xs text-stone-400">{formatDate(cn.created_at?.split('T')[0])}</div>
+                <div className="md:col-span-2 text-right font-semibold text-stone-900">{formatCurrency(cn.total, currencySymbol)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      )}
 
       {/* ── View Invoice Modal ── */}
       {modal === 'view' && selectedInvoice && (
@@ -1044,6 +1098,15 @@ export default function Invoices({ user }) {
               {taxRate > 0 && <div className="text-sm text-stone-500">{taxLabel} ({taxRate}%): {formatCurrency(formTax, currencySymbol)}</div>}
               <div className="text-lg font-bold text-stone-900">Total: {formatCurrency(formTotal, currencySymbol)}</div>
             </div>
+
+            {/* Issue date (edit only) */}
+            {modal === 'edit' && (
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5">Issue Date</label>
+                <input type="date" value={formIssueDate} disabled={!!selectedInvoice?.sent_at} onChange={e => setFormIssueDate(e.target.value)} className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed" />
+                {selectedInvoice?.sent_at && <p className="text-xs text-stone-400 mt-1">Issue date is locked — invoice has been sent.</p>}
+              </div>
+            )}
 
             {/* Due date */}
             <div>

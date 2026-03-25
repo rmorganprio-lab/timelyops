@@ -109,6 +109,17 @@ export default function Quotes({ user }) {
     return true
   })
 
+  // ── Helpers ──
+
+  function getNextQuoteNumber() {
+    const existing = quotes.map(q => {
+      const num = q.quote_number?.replace(/\D/g, '')
+      return num ? Number(num) : 0
+    })
+    const max = existing.length > 0 ? Math.max(...existing) : 0
+    return `QT-${String(max + 1).padStart(4, '0')}`
+  }
+
   // ── Auto-fill helpers ──
 
   function getClientProperty(clientId) {
