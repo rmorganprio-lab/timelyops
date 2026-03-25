@@ -86,6 +86,7 @@ function App() {
 
   const loadingRef = useRef(true)
   const loadingUserRef = useRef(null)
+  const sessionLoadedRef = useRef(false)
 
   function resolveLoading() {
     loadingRef.current = false
@@ -104,6 +105,7 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSession(session)
+        sessionLoadedRef.current = true
         loadUser(session.user.id)
       } else {
         resolveLoading()
@@ -119,8 +121,20 @@ function App() {
         }
         setSession(session)
         if (session) {
+          sessionLoadedRef.current = true
           loadUser(session.user.id)
         } else {
+          // Check if this is an intentional sign-out or an expired session
+          const intentional = sessionStorage.getItem('intentional_signout')
+          sessionStorage.removeItem('intentional_signout')
+          if (sessionLoadedRef.current && !intentional) {
+            // Session expired mid-use — redirect to login with message
+            sessionLoadedRef.current = false
+            loadingUserRef.current = null
+            window.location.replace('/login?expired=1')
+            return
+          }
+          sessionLoadedRef.current = false
           loadingUserRef.current = null
           setUser(null)
           resolveLoading()

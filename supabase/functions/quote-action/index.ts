@@ -15,6 +15,16 @@ function fmtCurrency(n: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 }
 
+function escapeHtml(s: string | null | undefined): string {
+  if (s == null) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // ─── Resend email helper ─────────────────────────────────────────
 
 async function sendEmail(opts: {
@@ -83,20 +93,20 @@ function emailWrapper(orgName: string, body: string): string {
 }
 
 function templateQuoteApprovedNotification(orgName: string, quoteNumber: string, clientName: string, total: number): string {
-  return emailWrapper(orgName, `
+  return emailWrapper(escapeHtml(orgName), `
     <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1c1917;">Quote approved</p>
-    <p style="margin:0 0 24px;font-size:15px;color:#57534e;">${clientName} has approved Quote #${quoteNumber} (${fmtCurrency(total)}).</p>
+    <p style="margin:0 0 24px;font-size:15px;color:#57534e;">${escapeHtml(clientName)} has approved Quote #${escapeHtml(quoteNumber)} (${fmtCurrency(total)}).</p>
     <p style="margin:0;font-size:14px;color:#78716c;">Log in to TimelyOps to create an invoice or schedule the work.</p>
   `)
 }
 
 function templateQuoteDeclinedNotification(orgName: string, quoteNumber: string, clientName: string, total: number, reason?: string): string {
   const reasonBlock = reason
-    ? `<div style="margin:16px 0 0;padding:12px 16px;background-color:#fef2f2;border-left:3px solid #f87171;border-radius:4px;"><p style="margin:0;font-size:13px;color:#991b1b;font-style:italic;">"${reason}"</p></div>`
+    ? `<div style="margin:16px 0 0;padding:12px 16px;background-color:#fef2f2;border-left:3px solid #f87171;border-radius:4px;"><p style="margin:0;font-size:13px;color:#991b1b;font-style:italic;">"${escapeHtml(reason)}"</p></div>`
     : ''
-  return emailWrapper(orgName, `
+  return emailWrapper(escapeHtml(orgName), `
     <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#1c1917;">Quote declined</p>
-    <p style="margin:0 0 4px;font-size:15px;color:#57534e;">${clientName} has declined Quote #${quoteNumber} (${fmtCurrency(total)}).</p>
+    <p style="margin:0 0 4px;font-size:15px;color:#57534e;">${escapeHtml(clientName)} has declined Quote #${escapeHtml(quoteNumber)} (${fmtCurrency(total)}).</p>
     ${reasonBlock}
     <p style="margin:16px 0 0;font-size:14px;color:#78716c;">Log in to TimelyOps to follow up or revise the quote.</p>
   `)
@@ -132,8 +142,8 @@ serve(async (req) => {
         .select(`
           id, invoice_number, status, issue_date, due_date, total, subtotal, tax_amount,
           notes, view_token,
-          clients(id, name, email, phone),
-          organizations(id, name),
+          clients(id, name),
+          organizations(name),
           invoice_line_items(id, description, quantity, unit_price, total)
         `)
         .eq('view_token', token)
@@ -159,8 +169,8 @@ serve(async (req) => {
         .select(`
           id, quote_number, status, created_at, valid_until, total, subtotal, tax_amount,
           notes, approval_token, approved_at, declined_at, decline_reason,
-          clients(id, name, email, phone),
-          organizations(id, name),
+          clients(id, name),
+          organizations(name),
           quote_line_items(id, description, quantity, unit_price, total, sort_order)
         `)
         .eq('approval_token', token)
@@ -185,8 +195,8 @@ serve(async (req) => {
       const { data: quote, error: fetchError } = await supabase
         .from('quotes')
         .select(`
-          id, quote_number, status, total, approval_token, approved_at, declined_at,
-          clients(name, email),
+          id, quote_number, status, total, approval_token, approved_at, declined_at, valid_until,
+          clients(name),
           organizations(id, name)
         `)
         .eq('approval_token', token)
@@ -210,6 +220,13 @@ serve(async (req) => {
       if (quote.declined_at) {
         return new Response(JSON.stringify({ error: 'already_declined' }), {
           status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (quote.valid_until && new Date(quote.valid_until) < new Date()) {
+        return new Response(JSON.stringify({ error: 'quote_expired' }), {
+          status: 410,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
@@ -252,11 +269,19 @@ serve(async (req) => {
 
     // ── decline_quote ────────────────────────────────────────────
     if (action === 'decline_quote') {
+      // Validate decline_reason length
+      if (reason && String(reason).length > 1000) {
+        return new Response(JSON.stringify({ error: 'Decline reason is too long (max 1000 characters)' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
       const { data: quote, error: fetchError } = await supabase
         .from('quotes')
         .select(`
           id, quote_number, status, total, approval_token, approved_at, declined_at,
-          clients(name, email),
+          clients(name),
           organizations(id, name)
         `)
         .eq('approval_token', token)
@@ -330,9 +355,9 @@ serve(async (req) => {
         .from('payments')
         .select(`
           id, amount, method, date, view_token,
-          clients(id, name),
+          clients(name),
           invoices(id, invoice_number, total),
-          organizations(id, name)
+          organizations(name)
         `)
         .eq('view_token', token)
         .single()

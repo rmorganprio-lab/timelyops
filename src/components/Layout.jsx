@@ -61,6 +61,7 @@ export default function Layout({ user }) {
     : ownerNav.filter(item => !item.roles || item.roles.includes(role) || user?.is_platform_admin)
 
   async function handleSignOut() {
+    sessionStorage.setItem('intentional_signout', '1')
     await supabase.auth.signOut()
     const savedPhone = localStorage.getItem('allbookd_phone')
     localStorage.clear()

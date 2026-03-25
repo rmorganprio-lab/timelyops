@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
+const sessionExpired = new URLSearchParams(window.location.search).get('expired') === '1'
+
 function friendlyError(msg) {
   if (!msg) return msg
   const lower = msg.toLowerCase()
@@ -90,6 +92,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
+        {/* Session expired banner */}
+        {sessionExpired && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 text-center">
+            Your session expired. Please sign in again.
+          </div>
+        )}
+
         {/* Logo / Brand */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center mb-3" style={{ fontSize: '32px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, color: '#1c1917' }}>

@@ -6,6 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// ─── HTML Helpers ─────────────────────────────────────────────
+
+function escapeHtml(s: string | null | undefined): string {
+  if (s == null) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // ─── HTML Template Helpers ────────────────────────────────────
 
 function emailWrapper(orgName: string, body: string): string {
@@ -23,7 +35,7 @@ function emailWrapper(orgName: string, body: string): string {
         <!-- Header -->
         <tr>
           <td style="background-color:#047857;padding:24px 32px;">
-            <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">${orgName}</span>
+            <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">${escapeHtml(orgName)}</span>
           </td>
         </tr>
         <!-- Body -->
@@ -69,7 +81,7 @@ function lineItemsTable(items: Array<{ description: string; quantity: number; un
   const rows = items.map(li => {
     const lineTotal = li.total ?? (li.quantity * li.unit_price)
     return `<tr>
-      <td style="padding:10px 0;font-size:14px;color:#44403c;border-bottom:1px solid #f5f5f4;">${li.description}</td>
+      <td style="padding:10px 0;font-size:14px;color:#44403c;border-bottom:1px solid #f5f5f4;">${escapeHtml(li.description)}</td>
       <td style="padding:10px 0;font-size:14px;color:#78716c;text-align:right;border-bottom:1px solid #f5f5f4;">${li.quantity}</td>
       <td style="padding:10px 0;font-size:14px;color:#78716c;text-align:right;border-bottom:1px solid #f5f5f4;">${sym}${Number(li.unit_price).toFixed(2)}</td>
       <td style="padding:10px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;border-bottom:1px solid #f5f5f4;">${sym}${Number(lineTotal).toFixed(2)}</td>
@@ -130,15 +142,15 @@ function templateQuoteSent(org: { name: string }, data: Record<string, unknown>,
   const addrLines = formatClientAddress(data.client as Record<string, unknown> || {})
 
   const body = `
-    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${firstName},</p>
+    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${escapeHtml(firstName)},</p>
     <p style="font-size:15px;color:#44403c;margin:0 0 24px 0;">Here's a quote for your review:</p>
 
     <div style="background-color:#f5f5f4;border-radius:8px;padding:16px;margin-bottom:20px;">
       <div style="font-size:11px;color:#a8a29e;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Prepared for</div>
-      <div style="font-size:14px;font-weight:600;color:#1c1917;">${clientName}</div>
-      ${addrLines.map(l => `<div style="font-size:13px;color:#78716c;">${l}</div>`).join('')}
+      <div style="font-size:14px;font-weight:600;color:#1c1917;">${escapeHtml(clientName)}</div>
+      ${addrLines.map(l => `<div style="font-size:13px;color:#78716c;">${escapeHtml(l)}</div>`).join('')}
       <div style="border-top:1px solid #e7e5e4;margin:10px 0;"></div>
-      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${quoteNumber}</div>
+      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${escapeHtml(quoteNumber)}</div>
       <div style="font-size:13px;color:#78716c;">Date: ${fmtDate(String(data.quote_date || ''))}</div>
       ${data.valid_until ? `<div style="font-size:13px;color:#78716c;margin-top:4px;">Valid until: ${fmtDate(String(data.valid_until))}</div>` : ''}
     </div>
@@ -146,7 +158,7 @@ function templateQuoteSent(org: { name: string }, data: Record<string, unknown>,
     ${lineItemsTable(data.line_items as Array<{ description: string; quantity: number; unit_price: number; total?: number }>, sym)}
     ${totalsBlock(Number(data.subtotal), Number(data.tax_amount || 0), Number(data.total), sym)}
 
-    ${data.notes ? `<div style="margin:20px 0;padding:16px;background-color:#f5f5f4;border-radius:8px;font-size:14px;color:#57534e;">${String(data.notes)}</div>` : ''}
+    ${data.notes ? `<div style="margin:20px 0;padding:16px;background-color:#f5f5f4;border-radius:8px;font-size:14px;color:#57534e;">${escapeHtml(String(data.notes))}</div>` : ''}
 
     <div style="margin:28px 0;text-align:center;">
       ${btn('Approve Quote', `${approveUrl}?action=approve`)}
@@ -155,7 +167,7 @@ function templateQuoteSent(org: { name: string }, data: Record<string, unknown>,
     </div>
 
     <p style="font-size:13px;color:#a8a29e;margin:24px 0 0 0;text-align:center;">
-      If you have questions, reply to this email — it goes directly to ${org.name}.
+      If you have questions, reply to this email — it goes directly to ${escapeHtml(org.name)}.
     </p>`
 
   return { subject, html: emailWrapper(org.name, body) }
@@ -172,15 +184,15 @@ function templateInvoiceSent(org: { name: string }, data: Record<string, unknown
   const subject = `Invoice from ${org.name} — #${invoiceNumber}`
 
   const body = `
-    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${firstName},</p>
+    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${escapeHtml(firstName)},</p>
     <p style="font-size:15px;color:#44403c;margin:0 0 24px 0;">Here's your invoice:</p>
 
     <div style="background-color:#f5f5f4;border-radius:8px;padding:16px;margin-bottom:20px;">
       <div style="font-size:11px;color:#a8a29e;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Billed to</div>
-      <div style="font-size:14px;font-weight:600;color:#1c1917;">${clientName}</div>
-      ${addrLines.map(l => `<div style="font-size:13px;color:#78716c;">${l}</div>`).join('')}
+      <div style="font-size:14px;font-weight:600;color:#1c1917;">${escapeHtml(clientName)}</div>
+      ${addrLines.map(l => `<div style="font-size:13px;color:#78716c;">${escapeHtml(l)}</div>`).join('')}
       <div style="border-top:1px solid #e7e5e4;margin:10px 0;"></div>
-      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Invoice #${invoiceNumber}</div>
+      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Invoice #${escapeHtml(invoiceNumber)}</div>
       <div style="font-size:13px;color:#78716c;">Issued: ${fmtDate(String(data.issue_date || ''))}</div>
       ${data.due_date ? `<div style="font-size:14px;font-weight:600;color:#dc2626;margin-top:6px;">Due: ${fmtDate(String(data.due_date))}</div>` : ''}
     </div>
@@ -188,14 +200,14 @@ function templateInvoiceSent(org: { name: string }, data: Record<string, unknown
     ${lineItemsTable(data.line_items as Array<{ description: string; quantity: number; unit_price: number; total?: number }>, sym)}
     ${totalsBlock(Number(data.subtotal), Number(data.tax_amount || 0), Number(data.total), sym)}
 
-    ${data.notes ? `<div style="margin:20px 0;padding:16px;background-color:#f5f5f4;border-radius:8px;font-size:14px;color:#57534e;">${String(data.notes)}</div>` : ''}
+    ${data.notes ? `<div style="margin:20px 0;padding:16px;background-color:#f5f5f4;border-radius:8px;font-size:14px;color:#57534e;">${escapeHtml(String(data.notes))}</div>` : ''}
 
     <div style="margin:28px 0;text-align:center;">
       ${btn('View Invoice', viewUrl)}
     </div>
 
     <p style="font-size:13px;color:#a8a29e;margin:24px 0 0 0;text-align:center;">
-      If you have questions, reply to this email — it goes directly to ${org.name}.
+      If you have questions, reply to this email — it goes directly to ${escapeHtml(org.name)}.
     </p>`
 
   return { subject, html: emailWrapper(org.name, body) }
@@ -213,7 +225,7 @@ function templatePaymentReceipt(org: { name: string }, data: Record<string, unkn
   const subject = `Payment received — Thank you! (#${invoiceNumber})`
 
   const body = `
-    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${firstName},</p>
+    <p style="font-size:15px;color:#44403c;margin:0 0 8px 0;">Hi ${escapeHtml(firstName)},</p>
     <p style="font-size:15px;color:#44403c;margin:0 0 24px 0;">Thank you for your payment!</p>
 
     <div style="background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:20px;text-align:center;margin-bottom:24px;">
@@ -228,7 +240,7 @@ function templatePaymentReceipt(org: { name: string }, data: Record<string, unkn
       </tr>
       <tr>
         <td style="padding:8px 0;font-size:13px;color:#78716c;border-bottom:1px solid #f5f5f4;">Method</td>
-        <td style="padding:8px 0;font-size:13px;color:#44403c;text-align:right;border-bottom:1px solid #f5f5f4;text-transform:capitalize;">${String(data.payment_method || '')}</td>
+        <td style="padding:8px 0;font-size:13px;color:#44403c;text-align:right;border-bottom:1px solid #f5f5f4;text-transform:capitalize;">${escapeHtml(String(data.payment_method || ''))}</td>
       </tr>
       ${invoiceNumber ? `<tr>
         <td style="padding:8px 0;font-size:13px;color:#78716c;border-bottom:1px solid #f5f5f4;">Invoice</td>
@@ -259,11 +271,11 @@ function templateQuoteApproved(org: { name: string }, data: Record<string, unkno
     <div style="text-align:center;margin-bottom:28px;">
       <div style="display:inline-block;background-color:#ecfdf5;border-radius:50%;width:56px;height:56px;line-height:56px;font-size:28px;margin-bottom:16px;">✓</div>
       <h2 style="margin:0 0 8px 0;font-size:20px;color:#1c1917;">Great news!</h2>
-      <p style="margin:0;font-size:15px;color:#57534e;"><strong>${clientName}</strong> has approved your quote.</p>
+      <p style="margin:0;font-size:15px;color:#57534e;"><strong>${escapeHtml(clientName)}</strong> has approved your quote.</p>
     </div>
 
     <div style="background-color:#f5f5f4;border-radius:8px;padding:16px;margin-bottom:24px;text-align:center;">
-      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${quoteNumber}</div>
+      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${escapeHtml(quoteNumber)}</div>
       <div style="font-size:22px;font-weight:700;color:#047857;">${sym}${total.toFixed(2)}</div>
     </div>
 
@@ -286,16 +298,16 @@ function templateQuoteDeclined(org: { name: string }, data: Record<string, unkno
 
   const body = `
     <h2 style="margin:0 0 16px 0;font-size:20px;color:#1c1917;">Quote declined</h2>
-    <p style="font-size:15px;color:#57534e;margin:0 0 20px 0;"><strong>${clientName}</strong> has declined your quote.</p>
+    <p style="font-size:15px;color:#57534e;margin:0 0 20px 0;"><strong>${escapeHtml(clientName)}</strong> has declined your quote.</p>
 
     <div style="background-color:#f5f5f4;border-radius:8px;padding:16px;margin-bottom:24px;">
-      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${quoteNumber}</div>
+      <div style="font-size:13px;color:#78716c;margin-bottom:4px;">Quote #${escapeHtml(quoteNumber)}</div>
       <div style="font-size:18px;font-weight:700;color:#44403c;">${sym}${total.toFixed(2)}</div>
     </div>
 
     ${reason ? `<div style="background-color:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin-bottom:24px;">
       <div style="font-size:12px;font-weight:600;color:#991b1b;text-transform:uppercase;margin-bottom:6px;">Reason provided</div>
-      <div style="font-size:14px;color:#7f1d1d;">${reason}</div>
+      <div style="font-size:14px;color:#7f1d1d;">${escapeHtml(reason)}</div>
     </div>` : ''}
 
     <p style="font-size:14px;color:#57534e;margin-bottom:24px;">Log in to TimelyOps to follow up or revise the quote.</p>
@@ -343,6 +355,15 @@ serve(async (req) => {
       })
     }
 
+    // Fetch caller's org_id for ownership checks
+    const { data: callerUser } = await adminClient
+      .from('users')
+      .select('org_id, is_platform_admin')
+      .eq('id', authUser.id)
+      .single()
+    const callerOrgId = callerUser?.org_id
+    const callerIsAdmin = callerUser?.is_platform_admin === true
+
     const body = await req.json()
     const { type } = body
     if (!type) throw new Error('Missing required field: type')
@@ -360,11 +381,12 @@ serve(async (req) => {
         if (!quote_id) throw new Error('Missing quote_id')
 
         console.log('[send-email] Fetching quote:', quote_id)
-        const { data: quote, error } = await adminClient
+        let quoteQuery = adminClient
           .from('quotes')
           .select('*, clients(name, first_name, last_name, email, address, address_line_1, address_line_2, city, state_province, postal_code), organizations(name, settings), quote_line_items(*)')
           .eq('id', quote_id)
-          .single()
+        if (!callerIsAdmin) quoteQuery = quoteQuery.eq('org_id', callerOrgId)
+        const { data: quote, error } = await quoteQuery.single()
         console.log('[send-email] Quote query result — data:', JSON.stringify(quote), 'error:', JSON.stringify(error))
         if (error || !quote) throw new Error(`Quote not found: ${error?.message || error?.code || 'no data'}`)
         if (!quote.clients?.email) throw new Error('Client has no email address')
@@ -399,11 +421,12 @@ serve(async (req) => {
         if (!invoice_id) throw new Error('Missing invoice_id')
 
         console.log('[send-email] Fetching invoice:', invoice_id)
-        const { data: invoice, error: invError } = await adminClient
+        let invoiceQuery = adminClient
           .from('invoices')
           .select('*, clients(name, first_name, last_name, email, address, address_line_1, address_line_2, city, state_province, postal_code), organizations(name, settings), invoice_line_items(*)')
           .eq('id', invoice_id)
-          .single()
+        if (!callerIsAdmin) invoiceQuery = invoiceQuery.eq('org_id', callerOrgId)
+        const { data: invoice, error: invError } = await invoiceQuery.single()
         console.log('[send-email] Invoice query result — data:', JSON.stringify(invoice), 'error:', JSON.stringify(invError))
         if (invError || !invoice) throw new Error(`Invoice not found: ${invError?.message || invError?.code || 'no data'}`)
         if (!invoice.clients?.email) throw new Error('Client has no email address')
@@ -438,11 +461,12 @@ serve(async (req) => {
         if (!payment_id) throw new Error('Missing payment_id')
 
         console.log('[send-email] Fetching payment:', payment_id)
-        const { data: payment, error: payError } = await adminClient
+        let paymentQuery = adminClient
           .from('payments')
           .select('*, clients(name, first_name, last_name, email), invoices(invoice_number, total), organizations(name, settings)')
           .eq('id', payment_id)
-          .single()
+        if (!callerIsAdmin) paymentQuery = paymentQuery.eq('org_id', callerOrgId)
+        const { data: payment, error: payError } = await paymentQuery.single()
         console.log('[send-email] Payment query result — data:', JSON.stringify(payment), 'error:', JSON.stringify(payError))
         if (payError || !payment) throw new Error(`Payment not found: ${payError?.message || payError?.code || 'no data'}`)
         if (!payment.clients?.email) throw new Error('Client has no email address')
@@ -465,24 +489,26 @@ serve(async (req) => {
         break
       }
 
-      // These types are triggered internally (e.g. quote-action function) and
-      // still receive {to, org, data} in the body.
-      case 'quote_approved':
-      case 'quote_declined': {
-        const { to: bodyTo, org, data } = body
-        if (!bodyTo || !org?.name) throw new Error('Missing required fields: to, org')
-        to = bodyTo
-        orgName = org.name
-        orgEmail = org.email || null
-        const actionSym = (org.settings?.currency_symbol) || '$'
-        ;({ subject, html } = type === 'quote_approved'
-          ? templateQuoteApproved(org, data, actionSym)
-          : templateQuoteDeclined(org, data, actionSym))
-        break
-      }
-
       default:
         throw new Error(`Unknown email type: ${type}`)
+    }
+
+    // Rate limit: block if same recipient+type sent in last 60 seconds
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString()
+    const { data: recentSend } = await adminClient
+      .from('email_log')
+      .select('id')
+      .eq('recipient_email', to)
+      .eq('email_type', type)
+      .eq('status', 'sent')
+      .gte('created_at', oneMinuteAgo)
+      .limit(1)
+      .maybeSingle()
+    if (recentSend) {
+      return new Response(JSON.stringify({ error: 'Rate limit: this email was sent recently. Please wait a moment before sending again.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // Resolve org owner email from users table (organizations has no email column)
