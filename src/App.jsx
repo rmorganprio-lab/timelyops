@@ -23,6 +23,7 @@ import Settings from './pages/Settings'
 import QuoteApproval from './pages/QuoteApproval'
 import InvoiceView from './pages/InvoiceView'
 import PaymentReceipt from './pages/PaymentReceipt'
+import BookingPage from './pages/BookingPage'
 
 // Sends unauthenticated visitors to the static landing page
 function LandingRedirect() {
@@ -70,6 +71,7 @@ function AppRoutes({ user, session }) {
           <Route path="/approve/:token" element={<QuoteApproval />} />
           <Route path="/invoice/:token" element={<InvoiceView />} />
           <Route path="/receipt/:token" element={<PaymentReceipt />} />
+          <Route path="/book/:slug" element={<BookingPage />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
