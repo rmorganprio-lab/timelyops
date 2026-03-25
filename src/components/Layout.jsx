@@ -58,7 +58,7 @@ export default function Layout({ user }) {
   const isWorker = role === 'worker'
   const navItems = isWorker
     ? workerNav
-    : ownerNav.filter(item => !item.roles || item.roles.includes(role))
+    : ownerNav.filter(item => !item.roles || item.roles.includes(role) || user?.is_platform_admin)
 
   async function handleSignOut() {
     await supabase.auth.signOut()
