@@ -116,29 +116,30 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 
 ## Edge Functions (all deployed `--no-verify-jwt`)
 
-### `send-email` (v12)
+### `send-email` (v13 — security hardened)
 **What:** Sends transactional emails via Resend API. Accepts `{ type, quote_id | invoice_id | payment_id }`, looks up all data from DB using service role key, builds HTML email, sends, logs to `email_log`.
-**Types:** `quote_sent`, `invoice_sent`, `payment_receipt`, `quote_approved_notification`
+**Types:** `quote` (quote_sent), `invoice` (invoice_sent), `payment_receipt`. Note: `quote_approved`/`quote_declined` types removed — quote-action calls Resend directly for those notifications.
+**Security:** Org ownership enforced — users can only send emails for their own org's records. Platform admins bypass this check. Rate limit: same recipient+type blocked within 60 seconds (checks email_log). All user data HTML-escaped via `escapeHtml()` before template interpolation.
 **From:** `{Org Name} via TimelyOps <notifications@timelyops.com>`
 **Reply-To:** org owner email (looked up from users where role='ceo')
-**Env vars:** `RESEND_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+**Env vars:** `RESEND_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`
 **Auth:** Manual JWT verify via `supabase.auth.getUser(token)` — callers must pass `Authorization: Bearer <session.access_token>`
-**Currency:** DB queries include `organizations(name, settings)` — `currency_symbol` extracted from `org.settings?.currency_symbol || '$'` and passed to template helpers.
-**Client names:** Uses `formatClientName(first_name, last_name, fallback)` helper — joins structured name fields with space, falls back to legacy `name`.
-**Client address:** `formatClientAddress(client)` helper in Edge Function (Deno-native, no imports) returns `string[]` from structured fields, falls back to legacy `address`. Used in quote "Prepared for" and invoice "Billed to" blocks. DB queries for quote/invoice include `clients(name, first_name, last_name, email, address, address_line_1, address_line_2, city, state_province, postal_code)`.
 
-### `send-sms`
+### `send-sms` (v2 — security hardened)
 **What:** Sends SMS via Twilio API. Accepts `{ to, message }`.
-**Env vars:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
+**Security:** JWT auth required. Phone must be E.164 format (`+` + 7-14 digits). Message max 1600 chars. Rate limit: max 5 SMS/hour to same number (checks email_log). All sends logged to email_log (channel='sms').
+**Env vars:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 
-### `quote-action`
+### `quote-action` (v2 — security hardened)
 **What:** Handles all public (unauthenticated) token-based actions. Uses service role key for all DB access.
 **Actions:** `get_quote` (by approval_token), `approve_quote`, `decline_quote`, `get_invoice` (by view_token), `get_receipt` (by payment view_token)
+**Security:** Public responses stripped of client email/phone/id and org id — only display fields returned. `approve_quote` enforces `valid_until` expiry (returns 410 if expired). `decline_reason` capped at 1000 chars. All user data HTML-escaped in notification emails.
 **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 
-### `admin-update-auth-user`
+### `admin-update-auth-user` (v1 — new)
 **What:** Updates email/phone in `auth.users` using service role. Called from AdminUsers.jsx when a user's credentials change.
-**Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+**Security:** Server-side `is_platform_admin` check — frontend cannot bypass. Validates email format (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) and phone format (E.164). Logs change to `audit_log`.
+**Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 
 ---
 
@@ -229,6 +230,19 @@ Clicking a job card on the Dashboard calls `routerNavigate('/schedule', { state:
 - **Audit log gaps** — `logAudit()` not wired to core page actions (client creates/edits, invoice creates, quote sends, payments). Only admin actions are logged.
 - **No automated reminders** — Professional tier feature. `needs_assignment_reminder` flag is stored on jobs but notification system not built. TODO comment in Schedule.jsx `handleSave`.
 - **No online payments** — Invoice view page shows balance but has no Stripe integration. Outstanding invoices require manual payment recording.
+
+## Security posture (Phase 4 complete)
+
+- **Tokens:** `crypto.randomUUID()` everywhere — cryptographically secure UUIDs. ✓
+- **Public pages:** QuoteApproval, InvoiceView, PaymentReceipt import no auth context. ✓
+- **Public API responses:** Stripped to minimum needed fields (no client email/phone, no internal IDs).
+- **Quote expiry:** `approve_quote` returns 410 if `valid_until` is in the past.
+- **HTML escaping:** `escapeHtml()` applied to all user data in email templates (send-email, quote-action).
+- **Org ownership:** send-email verifies the requesting user's org_id matches the record's org_id before sending.
+- **Rate limiting:** send-email: 60s cooldown per recipient+type. send-sms: 5/hour per number.
+- **Edge Function auth:** send-email, send-sms, admin-update-auth-user all require valid JWT. quote-action is intentionally public (token-based).
+- **RLS:** All tables have RLS enabled. Users UPDATE policy has `WITH CHECK` preventing role/org/admin escalation. quotes and clients DELETE restricted to ceo+manager. Duplicate payments policies removed.
+- **Session expiry:** Redirects to /login?expired=1 with banner instead of silent landing page redirect.
 
 ---
 
