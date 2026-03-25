@@ -444,7 +444,9 @@ export default function Invoices({ user }) {
   // ── Status update ──
 
   async function updateStatus(invoice, newStatus) {
-    const { error } = await supabase.from('invoices').update({ status: newStatus }).eq('id', invoice.id)
+    const updateData = { status: newStatus }
+    if (newStatus === 'sent' && !invoice.sent_at) updateData.sent_at = new Date().toISOString()
+    const { error } = await supabase.from('invoices').update(updateData).eq('id', invoice.id)
     if (error) {
       console.error('Failed to update invoice status:', error)
       showToast('Something went wrong. Please try again.', 'error')
