@@ -341,7 +341,8 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     }).eq('id', org.id)
 
     if (error) {
-      showToast(error.message, 'error')
+      console.error('Failed to save organization:', error)
+      showToast('Failed to save changes. Please try again.', 'error')
     } else {
       showToast('Organization saved')
       if (Object.keys(changes).length > 0 && adminUser) {
@@ -356,7 +357,8 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     const oldUser = users.find(u => u.id === userId)
     const { error } = await supabase.from('users').update({ role: newRole }).eq('id', userId)
     if (error) {
-      showToast(error.message, 'error')
+      console.error('Failed to update user role:', error)
+      showToast('Failed to save changes. Please try again.', 'error')
     } else {
       showToast('Role updated')
       if (adminUser) {
@@ -368,8 +370,10 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
 
   async function removeUser(userId) {
     const { error } = await supabase.from('users').delete().eq('id', userId)
-    if (error) showToast(error.message, 'error')
-    else { showToast('User removed'); fetchUsers() }
+    if (error) {
+      console.error('Failed to remove user:', error)
+      showToast('Failed to delete user. Please try again.', 'error')
+    } else { showToast('User removed'); fetchUsers() }
     setConfirm(null)
   }
 
@@ -604,10 +608,16 @@ export default function AdminOrgs({ user }) {
   useEffect(() => { fetchOrgs() }, [])
 
   async function fetchOrgs() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organizations')
       .select('*, users(id, name, role, email)')
       .order('created_at', { ascending: false })
+    if (error) {
+      console.error('Failed to load organizations:', error)
+      showToast('Failed to load organizations. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     setOrgs(data || [])
     setLoading(false)
   }

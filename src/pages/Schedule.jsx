@@ -80,6 +80,13 @@ export default function Schedule({ user }) {
       supabase.from('users').select('id, name, availability').eq('org_id', effectiveOrgId).in('role', ['ceo', 'manager', 'worker']).order('name'),
       supabase.from('service_types').select('*').eq('org_id', effectiveOrgId).eq('is_active', true).order('name'),
     ])
+    if (jobsRes.error) {
+      console.error('Failed to load schedule data:', jobsRes.error)
+      showToast('Failed to load schedule data. Please try again.', 'error')
+    }
+    if (clientsRes.error) console.error('Failed to load clients for schedule:', clientsRes.error)
+    if (workersRes.error) console.error('Failed to load workers for schedule:', workersRes.error)
+    if (typesRes.error) console.error('Failed to load service types for schedule:', typesRes.error)
     setJobs(jobsRes.data || [])
     setClients(clientsRes.data || [])
     setWorkers(workersRes.data || [])
@@ -187,7 +194,13 @@ export default function Schedule({ user }) {
     }
 
     if (modal === 'add') {
-      const { data } = await supabase.from('jobs').insert(jobData).select().single()
+      const { data, error: insertError } = await supabase.from('jobs').insert(jobData).select().single()
+      if (insertError) {
+        console.error('Failed to save job:', insertError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       let jobId = data?.id
 
       // Create recurring instances
@@ -229,7 +242,13 @@ export default function Schedule({ user }) {
 
       if (action === 'this') {
         // Update only this instance
-        await supabase.from('jobs').update(jobData).eq('id', selectedJob.id)
+        const { error: updateError } = await supabase.from('jobs').update(jobData).eq('id', selectedJob.id)
+        if (updateError) {
+          console.error('Failed to update job:', updateError)
+          showToast('Failed to save changes. Please try again.', 'error')
+          setSaving(false)
+          return
+        }
         await supabase.from('job_assignments').delete().eq('job_id', selectedJob.id)
         if (form.assignees.length > 0) {
           await supabase.from('job_assignments').insert(form.assignees.map(uid => ({ job_id: selectedJob.id, user_id: uid })))
@@ -305,7 +324,8 @@ export default function Schedule({ user }) {
     }
 
     if (error) {
-      showToast('Delete failed: ' + error.message, 'error')
+      console.error('Failed to delete job:', error)
+      showToast('Failed to delete job. Please try again.', 'error')
       return
     }
 
@@ -320,11 +340,21 @@ export default function Schedule({ user }) {
 
   async function handleCheckIn(job, type) {
     if (type === 'arrive') {
-      await supabase.from('jobs').update({ status: 'in_progress', arrived_at: new Date().toISOString() }).eq('id', job.id)
+      const { error } = await supabase.from('jobs').update({ status: 'in_progress', arrived_at: new Date().toISOString() }).eq('id', job.id)
+      if (error) {
+        console.error('Failed to update job status:', error)
+        showToast('Failed to update job status. Please try again.', 'error')
+        return
+      }
       loadAll()
       if (selectedJob?.id === job.id) setSelectedJob({ ...job, status: 'in_progress', arrived_at: new Date().toISOString() })
     } else {
-      await supabase.from('jobs').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', job.id)
+      const { error } = await supabase.from('jobs').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', job.id)
+      if (error) {
+        console.error('Failed to update job status:', error)
+        showToast('Failed to update job status. Please try again.', 'error')
+        return
+      }
       loadAll()
       if (selectedJob?.id === job.id) setSelectedJob({ ...job, status: 'completed', completed_at: new Date().toISOString() })
       setPayAmount(job.price ? String(job.price) : '')
@@ -339,7 +369,7 @@ export default function Schedule({ user }) {
     const tz_date = todayInTimezone(tz)
     const view_token = crypto.randomUUID()
 
-    const { data: newPayment } = await supabase.from('payments').insert({
+    const { data: newPayment, error: paymentError } = await supabase.from('payments').insert({
       org_id: effectiveOrgId,
       client_id: paymentModal.client_id,
       job_id: paymentModal.id,
@@ -349,6 +379,13 @@ export default function Schedule({ user }) {
       notes: `Payment for ${paymentModal.title}`,
       view_token,
     }).select('id').single()
+
+    if (paymentError) {
+      console.error('Failed to record payment:', paymentError)
+      showToast('Failed to save changes. Please try again.', 'error')
+      setPaymentSaving(false)
+      return
+    }
 
     await supabase.from('client_timeline').insert({
       org_id: effectiveOrgId,

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { todayInTimezone, addDays, currentHourInTimezone, getTimezoneAbbr, formatTime } from '../lib/timezone'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 import { formatCurrency } from '../lib/formatCurrency'
 import { formatName, formatAddress } from '../lib/formatAddress'
 
@@ -14,6 +15,7 @@ export default function Dashboard({ user }) {
   const role = user?.role || 'worker'
   const isWorker = role === 'worker'
   const { adminViewOrg } = useAdminOrg()
+  const { showToast } = useToast()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
 
   const [data, setData] = useState({
@@ -39,6 +41,15 @@ export default function Dashboard({ user }) {
     ]
 
     const [jobsToday, jobsWeek, workers, overdue, payments, clients] = await Promise.all(queries)
+
+    const hasError = [jobsToday, jobsWeek, workers, overdue, payments, clients].some(r => r.error)
+    if (hasError) {
+      const errorResult = [jobsToday, jobsWeek, workers, overdue, payments, clients].find(r => r.error)
+      console.error('Dashboard load error:', errorResult.error)
+      showToast('Failed to load dashboard data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
 
     // Calculate outstanding
     const totalOutstanding = (overdue.data || []).reduce((sum, inv) => sum + Number(inv.total || 0), 0)

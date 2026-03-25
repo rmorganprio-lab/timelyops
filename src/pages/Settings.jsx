@@ -60,11 +60,17 @@ export default function Settings({ user }) {
 
   async function loadOrg() {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organizations')
       .select('id, name, settings')
       .eq('id', effectiveOrgId)
       .single()
+    if (error) {
+      console.error('Failed to load settings:', error)
+      showToast('Failed to load settings. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     if (data) {
       setOrg(data)
       setOrgName(data.name || '')
@@ -123,7 +129,8 @@ export default function Settings({ user }) {
       .eq('id', effectiveOrgId)
 
     if (error) {
-      showToast('Failed to save settings: ' + error.message, 'error')
+      console.error('Failed to save settings:', error)
+      showToast('Failed to save changes. Please try again.', 'error')
       setSaving(false)
       return
     }

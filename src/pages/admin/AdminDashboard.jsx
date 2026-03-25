@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useToast } from '../../contexts/ToastContext'
 
 function StatCard({ label, value, sub }) {
   return (
@@ -13,6 +14,7 @@ function StatCard({ label, value, sub }) {
 }
 
 export default function AdminDashboard() {
+  const { showToast } = useToast()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -23,6 +25,13 @@ export default function AdminDashboard() {
       supabase.from('organizations').select('id, subscription_tier, subscription_status, is_founding_customer'),
       supabase.from('users').select('id', { count: 'exact', head: true }),
     ])
+
+    if (orgsRes.error) {
+      console.error('Failed to load admin dashboard stats:', orgsRes.error)
+      showToast('Failed to load dashboard data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
 
     const orgs = orgsRes.data || []
     setStats({

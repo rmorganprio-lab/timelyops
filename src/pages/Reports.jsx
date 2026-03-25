@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { todayInTimezone, formatDate, formatTime, formatTimestamp, addDays, toDateStr } from '../lib/timezone'
 import ExportModal from '../components/ExportModal'
 import FeatureGate from '../components/FeatureGate'
+import { useToast } from '../contexts/ToastContext'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -111,6 +112,7 @@ function DailyTab({ user }) {
   const tz = user?.organizations?.settings?.timezone || 'America/Los_Angeles'
   const currencySymbol = user?.organizations?.settings?.currency_symbol || '$'
   const today = todayInTimezone(tz)
+  const { showToast } = useToast()
   const [date, setDate] = useState(today)
   const [jobs, setJobs] = useState([])
   const [payments, setPayments] = useState([])
@@ -126,6 +128,12 @@ function DailyTab({ user }) {
       supabase.from('payments').select('amount, job_id, client_id').eq('date', d),
       supabase.from('users').select('id, name'),
     ])
+    if (jobsRes.error) {
+      console.error('Failed to load daily report data:', jobsRes.error)
+      showToast('Failed to load report data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     const wMap = {}
     ;(usersRes.data || []).forEach(u => { wMap[u.id] = u.name })
     setWorkers(wMap)
@@ -279,6 +287,7 @@ function WeeklyTab({ user }) {
   const tz = user?.organizations?.settings?.timezone || 'America/Los_Angeles'
   const currencySymbol = user?.organizations?.settings?.currency_symbol || '$'
   const today = todayInTimezone(tz)
+  const { showToast } = useToast()
   const [weekStart, setWeekStart] = useState(() => getMondayOfWeek(today))
   const [jobs, setJobs] = useState([])
   const [payments, setPayments] = useState([])
@@ -298,6 +307,12 @@ function WeeklyTab({ user }) {
       supabase.from('payments').select('amount, date, job_id, client_id').gte('date', weekStart).lte('date', weekEnd),
       supabase.from('users').select('id, name'),
     ])
+    if (jobsRes.error) {
+      console.error('Failed to load weekly report data:', jobsRes.error)
+      showToast('Failed to load report data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     const wMap = {}
     ;(usersRes.data || []).forEach(u => { wMap[u.id] = u.name })
     setWorkers(wMap)
@@ -435,6 +450,7 @@ function MonthlyTab({ user }) {
   const tz = user?.organizations?.settings?.timezone || 'America/Los_Angeles'
   const currencySymbol = user?.organizations?.settings?.currency_symbol || '$'
   const now = new Date(todayInTimezone(tz) + 'T12:00:00')
+  const { showToast } = useToast()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [data, setData] = useState(null)
@@ -465,6 +481,13 @@ function MonthlyTab({ user }) {
       supabase.from('payments').select('amount, client_id').gte('date', pStart).lte('date', pEnd),
       supabase.from('users').select('id, name'),
     ])
+
+    if (jobsRes.error) {
+      console.error('Failed to load monthly report data:', jobsRes.error)
+      showToast('Failed to load report data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
 
     const wMap = {}
     ;(usersRes.data || []).forEach(u => { wMap[u.id] = u.name })
@@ -685,6 +708,7 @@ function AlertsTab({ user }) {
   const tz = user?.organizations?.settings?.timezone || 'America/Los_Angeles'
   const currencySymbol = user?.organizations?.settings?.currency_symbol || '$'
   const today = todayInTimezone(tz)
+  const { showToast } = useToast()
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -699,6 +723,13 @@ function AlertsTab({ user }) {
       supabase.from('jobs').select('*, clients(name)').gte('date', ninetyDaysAgo).lte('date', today).order('date', { ascending: false }),
       supabase.from('payments').select('job_id, client_id, amount'),
     ])
+
+    if (jobsRes.error) {
+      console.error('Failed to load alerts data:', jobsRes.error)
+      showToast('Failed to load report data. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
 
     const jobs = jobsRes.data || []
     const allPayments = allPaymentsRes.data || []

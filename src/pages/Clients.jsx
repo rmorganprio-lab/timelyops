@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import CSVImport from '../components/CSVImport'
 import { CLIENT_TEMPLATE, validateClientRows, normalizePhone } from '../lib/csv'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 import { formatAddress, formatAddressLines, formatName } from '../lib/formatAddress'
 
 const emptyClient = {
@@ -39,6 +40,7 @@ export default function Clients({ user }) {
   const [clientTimeline, setClientTimeline] = useState([])
 
   const { adminViewOrg } = useAdminOrg()
+  const { showToast } = useToast()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
   const defaultCountry = user?.organizations?.settings?.country || 'US'
 
@@ -47,12 +49,18 @@ export default function Clients({ user }) {
   }, [effectiveOrgId])
 
   async function loadClients() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('clients')
       .select('*, client_properties(*)')
       .eq('org_id', effectiveOrgId)
       .order('first_name')
 
+    if (error) {
+      console.error('Failed to load clients:', error)
+      showToast('Failed to load clients. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     if (data) setClients(data)
     setLoading(false)
   }
@@ -119,12 +127,15 @@ export default function Clients({ user }) {
     setSelectedClient(client)
     setClientTimeline([])
     setModal('view')
-    const { data: timeline } = await supabase
+    const { data: timeline, error: timelineError } = await supabase
       .from('client_timeline')
       .select('*')
       .eq('client_id', client.id)
       .order('created_at', { ascending: false })
       .limit(20)
+    if (timelineError) {
+      console.error('Failed to load client timeline:', timelineError)
+    }
     setClientTimeline(timeline || [])
   }
 
@@ -137,46 +148,64 @@ export default function Clients({ user }) {
         ? 'email'
         : form.preferred_contact
 
-      const { data: newClient } = await supabase
+      const { data: newClient, error: insertError } = await supabase
         .from('clients')
         .insert({ ...form, preferred_contact: preferred, org_id: effectiveOrgId })
         .select()
         .single()
 
+      if (insertError) {
+        console.error('Failed to save client:', insertError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
+
       if (newClient && hasPropertyData()) {
-        await supabase.from('client_properties').insert({
+        const { error: propError } = await supabase.from('client_properties').insert({
           ...cleanProperty(),
           client_id: newClient.id,
           org_id: effectiveOrgId,
         })
+        if (propError) console.error('Failed to save client property:', propError)
 
-        await supabase.from('client_timeline').insert({
+        const { error: timelineError } = await supabase.from('client_timeline').insert({
           org_id: effectiveOrgId,
           client_id: newClient.id,
           event_type: 'note',
           summary: 'Client created',
           created_by: user.id,
         })
+        if (timelineError) console.error('Failed to save client timeline entry:', timelineError)
       }
     } else {
-      await supabase
+      const { error: updateError } = await supabase
         .from('clients')
         .update({ ...form })
         .eq('id', selectedClient.id)
 
+      if (updateError) {
+        console.error('Failed to update client:', updateError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
+
       const existingProp = selectedClient.client_properties?.[0]
       if (hasPropertyData()) {
         if (existingProp) {
-          await supabase
+          const { error: propError } = await supabase
             .from('client_properties')
             .update(cleanProperty())
             .eq('id', existingProp.id)
+          if (propError) console.error('Failed to update client property:', propError)
         } else {
-          await supabase.from('client_properties').insert({
+          const { error: propError } = await supabase.from('client_properties').insert({
             ...cleanProperty(),
             client_id: selectedClient.id,
             org_id: effectiveOrgId,
           })
+          if (propError) console.error('Failed to insert client property:', propError)
         }
       }
     }
@@ -187,7 +216,12 @@ export default function Clients({ user }) {
   }
 
   async function handleDelete(id) {
-    await supabase.from('clients').delete().eq('id', id)
+    const { error } = await supabase.from('clients').delete().eq('id', id)
+    if (error) {
+      console.error('Failed to delete client:', error)
+      showToast('Failed to delete client. Please try again.', 'error')
+      return
+    }
     setDeleteConfirm(null)
     setModal(null)
     loadClients()

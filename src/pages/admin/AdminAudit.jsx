@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useToast } from '../../contexts/ToastContext'
 
 const fmtDateTime = d => d
   ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -60,6 +61,7 @@ const PAGE_SIZE = 50
 
 export default function AdminAudit() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { showToast } = useToast()
 
   const [entries, setEntries]   = useState([])
   const [orgs, setOrgs]         = useState([])
@@ -93,7 +95,13 @@ export default function AdminAudit() {
     if (filterDateFrom) query = query.gte('created_at', filterDateFrom)
     if (filterDateTo) query = query.lte('created_at', filterDateTo + 'T23:59:59Z')
 
-    const { data } = await query
+    const { data, error } = await query
+    if (error) {
+      console.error('Failed to load audit log:', error)
+      showToast('Failed to load audit log. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     const results = data || []
 
     if (pageNum === 0) {

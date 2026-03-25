@@ -61,6 +61,12 @@ export default function Payments({ user }) {
       supabase.from('clients').select('id, name, first_name, last_name').eq('org_id', effectiveOrgId).eq('status', 'active').order('first_name'),
       supabase.from('invoices').select('id, invoice_number, total, status, client_id, clients(name)').eq('org_id', effectiveOrgId).in('status', ['sent', 'overdue']).order('created_at', { ascending: false }),
     ])
+    if (paymentsRes.error) {
+      console.error('Failed to load payments:', paymentsRes.error)
+      showToast('Failed to load payments. Please try again.', 'error')
+    }
+    if (clientsRes.error) console.error('Failed to load clients for payments:', clientsRes.error)
+    if (invoicesRes.error) console.error('Failed to load invoices for payments:', invoicesRes.error)
     setPayments(paymentsRes.data || [])
     setClients(clientsRes.data || [])
     setInvoices(invoicesRes.data || [])
@@ -165,7 +171,13 @@ export default function Payments({ user }) {
 
     if (modal === 'add') {
       const { error } = await supabase.from('payments').insert(paymentData)
-      if (!error && form.invoice_id) {
+      if (error) {
+        console.error('Failed to record payment:', error)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
+      if (form.invoice_id) {
         // Check if invoice is fully paid
         const { data: invoicePayments } = await supabase.from('payments').select('amount').eq('invoice_id', form.invoice_id)
         const totalPaid = invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0
@@ -175,17 +187,21 @@ export default function Payments({ user }) {
         }
       }
       // Log to client timeline
-      if (!error) {
-        await supabase.from('client_timeline').insert({
-          org_id: effectiveOrgId,
-          client_id: form.client_id,
-          event_type: 'payment',
-          summary: `Payment of ${formatCurrency(form.amount, currencySymbol)} received via ${form.method}`,
-          created_by: user.id,
-        })
-      }
+      await supabase.from('client_timeline').insert({
+        org_id: effectiveOrgId,
+        client_id: form.client_id,
+        event_type: 'payment',
+        summary: `Payment of ${formatCurrency(form.amount, currencySymbol)} received via ${form.method}`,
+        created_by: user.id,
+      })
     } else {
-      await supabase.from('payments').update(paymentData).eq('id', selectedPayment.id)
+      const { error: updateError } = await supabase.from('payments').update(paymentData).eq('id', selectedPayment.id)
+      if (updateError) {
+        console.error('Failed to update payment:', updateError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
     }
 
     setSaving(false)
@@ -255,7 +271,12 @@ export default function Payments({ user }) {
 
   async function handleDelete() {
     if (!selectedPayment) return
-    await supabase.from('payments').delete().eq('id', selectedPayment.id)
+    const { error } = await supabase.from('payments').delete().eq('id', selectedPayment.id)
+    if (error) {
+      console.error('Failed to delete payment:', error)
+      showToast('Failed to delete payment. Please try again.', 'error')
+      return
+    }
     setModal(null)
     loadAll()
   }

@@ -71,6 +71,14 @@ export default function Quotes({ user }) {
       supabase.from('pricing_matrix').select('*').eq('org_id', effectiveOrgId),
       supabase.from('users').select('id, name, availability').eq('org_id', effectiveOrgId).in('role', ['ceo', 'manager', 'worker']).eq('availability', 'available').order('name'),
     ])
+    if (quotesRes.error) {
+      console.error('Failed to load quotes:', quotesRes.error)
+      showToast('Failed to load quotes. Please try again.', 'error')
+    }
+    if (clientsRes.error) console.error('Failed to load clients for quotes:', clientsRes.error)
+    if (typesRes.error) console.error('Failed to load service types for quotes:', typesRes.error)
+    if (matrixRes.error) console.error('Failed to load pricing matrix for quotes:', matrixRes.error)
+    if (workersRes.error) console.error('Failed to load workers for quotes:', workersRes.error)
     setQuotes(quotesRes.data || [])
     setClients(clientsRes.data || [])
     setServiceTypes(typesRes.data || [])
@@ -277,7 +285,7 @@ export default function Quotes({ user }) {
     if (isNewClient) {
       if (!newClient.name.trim()) return setSaving(false)
 
-      const { data: createdClient } = await supabase.from('clients').insert({
+      const { data: createdClient, error: clientError } = await supabase.from('clients').insert({
         org_id: effectiveOrgId,
         name: newClient.name,
         phone: newClient.phone || null,
@@ -287,7 +295,12 @@ export default function Quotes({ user }) {
         tags: ['quote'],
       }).select().single()
 
-      if (!createdClient) { setSaving(false); return }
+      if (clientError || !createdClient) {
+        console.error('Failed to create new client:', clientError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       clientId = createdClient.id
 
       const hasPropertyData = newProperty.bedrooms || newProperty.bathrooms || newProperty.pet_details || newProperty.parking_instructions || newProperty.square_footage
@@ -329,7 +342,13 @@ export default function Quotes({ user }) {
 
     let quoteId
     if (modal === 'add') {
-      const { data } = await supabase.from('quotes').insert(quoteData).select().single()
+      const { data, error: quoteError } = await supabase.from('quotes').insert(quoteData).select().single()
+      if (quoteError) {
+        console.error('Failed to create quote:', quoteError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       quoteId = data?.id
 
       // Timeline entry
@@ -341,7 +360,13 @@ export default function Quotes({ user }) {
         })
       }
     } else {
-      await supabase.from('quotes').update(quoteData).eq('id', selectedQuote.id)
+      const { error: quoteError } = await supabase.from('quotes').update(quoteData).eq('id', selectedQuote.id)
+      if (quoteError) {
+        console.error('Failed to update quote:', quoteError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       quoteId = selectedQuote.id
       // Delete old line items
       await supabase.from('quote_line_items').delete().eq('quote_id', quoteId)
@@ -447,7 +472,12 @@ export default function Quotes({ user }) {
   // ── Status update ──
 
   async function updateStatus(quote, newStatus) {
-    await supabase.from('quotes').update({ status: newStatus }).eq('id', quote.id)
+    const { error } = await supabase.from('quotes').update({ status: newStatus }).eq('id', quote.id)
+    if (error) {
+      console.error('Failed to update quote status:', error)
+      showToast('Something went wrong. Please try again.', 'error')
+      return
+    }
 
     if (newStatus === 'approved') {
       await supabase.from('client_timeline').insert({
@@ -530,7 +560,12 @@ export default function Quotes({ user }) {
 
   async function handleDelete(id) {
     await supabase.from('quote_line_items').delete().eq('quote_id', id)
-    await supabase.from('quotes').delete().eq('id', id)
+    const { error } = await supabase.from('quotes').delete().eq('id', id)
+    if (error) {
+      console.error('Failed to delete quote:', error)
+      showToast('Failed to delete quote. Please try again.', 'error')
+      return
+    }
     setModal(null)
     loadAll()
   }

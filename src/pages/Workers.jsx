@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import CSVImport from '../components/CSVImport'
 import { WORKER_TEMPLATE, validateWorkerRows, normalizePhone } from '../lib/csv'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
+import { useToast } from '../contexts/ToastContext'
 
 export default function Workers({ user }) {
   const [workers, setWorkers] = useState([])
@@ -17,6 +18,7 @@ export default function Workers({ user }) {
 
   const orgId = user?.org_id
   const { adminViewOrg } = useAdminOrg()
+  const { showToast } = useToast()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
 
   useEffect(() => {
@@ -24,12 +26,18 @@ export default function Workers({ user }) {
   }, [effectiveOrgId])
 
   async function loadWorkers() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('org_id', effectiveOrgId)
       .order('name')
-    
+
+    if (error) {
+      console.error('Failed to load workers:', error)
+      showToast('Failed to load workers. Please try again.', 'error')
+      setLoading(false)
+      return
+    }
     if (data) setWorkers(data)
     setLoading(false)
   }
@@ -91,7 +99,7 @@ export default function Workers({ user }) {
     if (modal === 'add') {
       // Create a manual worker (no auth account)
       const newId = crypto.randomUUID()
-      await supabase.from('users').insert({
+      const { error } = await supabase.from('users').insert({
         id: newId,
         org_id: effectiveOrgId,
         name: form.name,
@@ -103,8 +111,14 @@ export default function Workers({ user }) {
         auth_linked: false,
         ...addressFields,
       })
+      if (error) {
+        console.error('Failed to add worker:', error)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
     } else {
-      await supabase
+      const { error } = await supabase
         .from('users')
         .update({
           name: form.name,
@@ -116,6 +130,12 @@ export default function Workers({ user }) {
           ...addressFields,
         })
         .eq('id', selectedWorker.id)
+      if (error) {
+        console.error('Failed to update worker:', error)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
     }
 
     setSaving(false)
@@ -124,17 +144,27 @@ export default function Workers({ user }) {
   }
 
   async function handleDelete(id) {
-    await supabase.from('users').delete().eq('id', id)
+    const { error } = await supabase.from('users').delete().eq('id', id)
+    if (error) {
+      console.error('Failed to delete worker:', error)
+      showToast('Failed to delete worker. Please try again.', 'error')
+      return
+    }
     setDeleteConfirm(null)
     setModal(null)
     loadWorkers()
   }
 
   async function toggleAvailability(worker, newStatus) {
-    await supabase
+    const { error } = await supabase
       .from('users')
       .update({ availability: newStatus })
       .eq('id', worker.id)
+    if (error) {
+      console.error('Failed to update availability:', error)
+      showToast('Something went wrong. Please try again.', 'error')
+      return
+    }
     loadWorkers()
   }
 

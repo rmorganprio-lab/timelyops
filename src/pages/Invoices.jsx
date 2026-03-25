@@ -67,6 +67,12 @@ export default function Invoices({ user }) {
       supabase.from('clients').select('id, name, first_name, last_name').eq('org_id', effectiveOrgId).eq('status', 'active').order('first_name'),
       supabase.from('jobs').select('id, title, date, price, client_id, status, clients(name)').eq('org_id', effectiveOrgId).eq('status', 'completed').is('invoice_id', null).order('date', { ascending: false }),
     ])
+    if (invRes.error) {
+      console.error('Failed to load invoices:', invRes.error)
+      showToast('Failed to load invoices. Please try again.', 'error')
+    }
+    if (clientsRes.error) console.error('Failed to load clients for invoices:', clientsRes.error)
+    if (jobsRes.error) console.error('Failed to load jobs for invoices:', jobsRes.error)
     setInvoices(invRes.data || [])
     setClients(clientsRes.data || [])
     setCompletedJobs(jobsRes.data || [])
@@ -239,7 +245,13 @@ export default function Invoices({ user }) {
 
     let invoiceId
     if (modal === 'add') {
-      const { data } = await supabase.from('invoices').insert(invoiceData).select().single()
+      const { data, error: invoiceError } = await supabase.from('invoices').insert(invoiceData).select().single()
+      if (invoiceError) {
+        console.error('Failed to create invoice:', invoiceError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       invoiceId = data?.id
 
       if (invoiceId) {
@@ -251,7 +263,13 @@ export default function Invoices({ user }) {
         })
       }
     } else {
-      await supabase.from('invoices').update(invoiceData).eq('id', selectedInvoice.id)
+      const { error: invoiceError } = await supabase.from('invoices').update(invoiceData).eq('id', selectedInvoice.id)
+      if (invoiceError) {
+        console.error('Failed to update invoice:', invoiceError)
+        showToast('Failed to save changes. Please try again.', 'error')
+        setSaving(false)
+        return
+      }
       invoiceId = selectedInvoice.id
       await supabase.from('invoice_line_items').delete().eq('invoice_id', invoiceId)
     }
@@ -378,7 +396,12 @@ export default function Invoices({ user }) {
   // ── Status update ──
 
   async function updateStatus(invoice, newStatus) {
-    await supabase.from('invoices').update({ status: newStatus }).eq('id', invoice.id)
+    const { error } = await supabase.from('invoices').update({ status: newStatus }).eq('id', invoice.id)
+    if (error) {
+      console.error('Failed to update invoice status:', error)
+      showToast('Something went wrong. Please try again.', 'error')
+      return
+    }
 
     if (newStatus === 'sent') {
       await supabase.from('client_timeline').insert({
@@ -400,7 +423,7 @@ export default function Invoices({ user }) {
     if (!payAmount || Number(payAmount) <= 0) return
     setPaymentSaving(true)
 
-    await supabase.from('payments').insert({
+    const { error: payError } = await supabase.from('payments').insert({
       org_id: effectiveOrgId,
       client_id: selectedInvoice.client_id,
       invoice_id: selectedInvoice.id,
@@ -409,6 +432,13 @@ export default function Invoices({ user }) {
       date: todayInTimezone(tz),
       notes: `Payment for invoice ${selectedInvoice.invoice_number}`,
     })
+
+    if (payError) {
+      console.error('Failed to record payment:', payError)
+      showToast('Failed to save changes. Please try again.', 'error')
+      setPaymentSaving(false)
+      return
+    }
 
     // Check if fully paid
     const { data: allPayments } = await supabase.from('payments').select('amount').eq('invoice_id', selectedInvoice.id)
@@ -446,7 +476,8 @@ export default function Invoices({ user }) {
     if (!deleteTarget) return
     const { error } = await supabase.from('invoices').delete().eq('id', deleteTarget.id)
     if (error) {
-      showToast('Delete failed: ' + error.message, 'error')
+      console.error('Failed to delete invoice:', error)
+      showToast('Failed to delete invoice. Please try again.', 'error')
       return
     }
     setDeleteTarget(null)
