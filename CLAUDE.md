@@ -108,8 +108,20 @@ Defined in `src/lib/tiers.js`:
 - Founding customer discount structure in place (Hilda)
 
 ## How to work with Rich
-- Be direct and skip the caveats — Rich has a strong technical background (20+ years supply chain and ops, comfortable with code)
-- Always use Plan mode for anything that touches multiple files or the database schema
+- Rich is the founder — not a developer. He understands processes 
+  and logic extremely well but needs technical steps explained in 
+  plain language with context (what it does and why, not just how)
+- Always use Plan mode for anything that touches multiple files or 
+  the database schema
 - Commit working code to git before starting any large change
-- Surface trade-offs clearly rather than just picking one approach silently
-- If something is ambiguous, ask one focused question rather than listing five options
+- Surface trade-offs clearly rather than just picking one approach 
+  silently
+- If something is ambiguous, ask one focused question rather than 
+  listing five options
+- Be direct and skip encouragement — get to the point
+
+## Keeping documentation current
+After completing any task that adds, removes, or changes a feature, 
+database table, Edge Function, or integration, update memory.md to 
+reflect the change before committing. If a change affects the tech 
+stack, architecture, or coding conventions, update CLAUDE.md too.

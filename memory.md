@@ -119,7 +119,6 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 ### `send-sms`
 **What:** Sends SMS via Twilio API. Accepts `{ to, message }`.
 **Env vars:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
-**Known issue:** Twilio trial account blocks SMS to Netherlands numbers (+31)
 
 ### `quote-action`
 **What:** Handles all public (unauthenticated) token-based actions. Uses service role key for all DB access.
@@ -176,7 +175,6 @@ Quotes, Invoices, Payments pages use `<DeliveryModal>` for manual sends. Pre-sel
 
 ## Known issues / blockers
 
-- **Twilio trial account** — SMS to Netherlands (+31) numbers blocked. Upgrade to paid Twilio to fix. Workaround: use email OTP when testing from NL.
 - **Audit log gaps** — `logAudit()` not wired to core page actions (client creates/edits, invoice creates, quote sends, payments). Only admin actions are logged.
 - **No automated reminders** — Professional tier feature, UI exists in tier definitions but system not built.
 - **No online payments** — Invoice view page shows balance but has no Stripe integration. Outstanding invoices require manual payment recording.
@@ -185,7 +183,6 @@ Quotes, Invoices, Payments pages use `<DeliveryModal>` for manual sends. Pre-sel
 
 ## TODO / open items
 
-- [ ] Upgrade Twilio from trial account (remove NL SMS block)
 - [ ] Wire `logAudit()` to core page actions (clients, invoices, payments, quotes)
 - [ ] Stripe integration for online payment on `/invoice/:token` page
 - [ ] Automated reminders system (Professional tier)
