@@ -17,6 +17,15 @@ const COUNTRY_PRESETS = {
 
 const DEFAULT_PRESET = { currency_code: 'USD', currency_symbol: '$', calling_code: '+1', payment_methods: ['Cash', 'Card', 'Bank Transfer', 'Other'] }
 
+const FREQUENCIES = [
+  { value: 'one_time',  label: 'One-time' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Biweekly' },
+  { value: 'monthly',  label: 'Monthly' },
+]
+const BED_OPTIONS  = [1, 2, 3, 4, 5]
+const BATH_OPTIONS = [1, 2, 3, 4]
+
 const COUNTRY_OPTIONS = [
   { code: 'US', label: 'United States' },
   { code: 'NL', label: 'Netherlands' },
@@ -59,7 +68,15 @@ export default function Settings({ user }) {
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
 
+  // Pricing matrix state
+  const [serviceTypes, setServiceTypes]               = useState([])
+  const [selectedServiceType, setSelectedServiceType] = useState(null)
+  const [selectedFrequency, setSelectedFrequency]     = useState('one_time')
+  const [pricingData, setPricingData]                 = useState({})
+  const [pricingSaving, setPricingSaving]             = useState(false)
+
   useEffect(() => { loadOrg() }, [effectiveOrgId])
+  useEffect(() => { if (effectiveOrgId) loadPricing() }, [effectiveOrgId])
 
   async function loadOrg() {
     setLoading(true)
@@ -120,6 +137,68 @@ export default function Settings({ user }) {
     }
     if (paymentMethods.length === 0) errs.paymentMethods = 'At least one payment method is required.'
     return errs
+  }
+
+  async function loadPricing() {
+    const { data: types } = await supabase
+      .from('service_types')
+      .select('id, name')
+      .eq('org_id', effectiveOrgId)
+      .eq('is_active', true)
+      .order('name')
+    const stList = types || []
+    setServiceTypes(stList)
+    if (stList.length > 0) setSelectedServiceType(prev => prev || stList[0].id)
+
+    const { data: matrix } = await supabase
+      .from('pricing_matrix')
+      .select('*')
+      .eq('org_id', effectiveOrgId)
+    const map = {}
+    for (const row of matrix || []) {
+      map[`${row.service_type_id}:${row.frequency}:${row.bedrooms}:${row.bathrooms}`] = String(row.price)
+    }
+    setPricingData(map)
+  }
+
+  function getPricingValue(stId, freq, beds, baths) {
+    return pricingData[`${stId}:${freq}:${beds}:${baths}`] || ''
+  }
+
+  function updatePricingValue(stId, freq, beds, baths, val) {
+    setPricingData(prev => ({ ...prev, [`${stId}:${freq}:${beds}:${baths}`]: val }))
+  }
+
+  async function savePricing() {
+    if (!selectedServiceType) return
+    setPricingSaving(true)
+    const rows = []
+    for (const { value: freq } of FREQUENCIES) {
+      for (const beds of BED_OPTIONS) {
+        for (const baths of BATH_OPTIONS) {
+          const val = getPricingValue(selectedServiceType, freq, beds, baths)
+          if (val !== '' && !isNaN(Number(val)) && Number(val) > 0) {
+            rows.push({ org_id: effectiveOrgId, service_type_id: selectedServiceType, bedrooms: beds, bathrooms: baths, frequency: freq, price: Number(val) })
+          }
+        }
+      }
+    }
+    const { error: delErr } = await supabase.from('pricing_matrix').delete().eq('org_id', effectiveOrgId).eq('service_type_id', selectedServiceType)
+    if (delErr) {
+      showToast('Failed to save pricing. Please try again.', 'error')
+      setPricingSaving(false)
+      return
+    }
+    if (rows.length > 0) {
+      const { error: insErr } = await supabase.from('pricing_matrix').insert(rows)
+      if (insErr) {
+        showToast('Failed to save pricing. Please try again.', 'error')
+        setPricingSaving(false)
+        return
+      }
+    }
+    showToast(`Pricing saved — ${rows.length} price${rows.length !== 1 ? 's' : ''} set`)
+    setPricingSaving(false)
   }
 
   async function handleSave() {
@@ -391,6 +470,102 @@ export default function Settings({ user }) {
           </div>
         )}
         {errors.paymentMethods && <p className="text-xs text-red-500 mt-2">{errors.paymentMethods}</p>}
+      </div>
+
+      {/* Pricing Matrix */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 mb-6">
+        <h2 className="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-1">Pricing Matrix</h2>
+        <p className="text-xs text-stone-400 mb-4">Set prices for each service, size, and frequency. Used by the AI booking agent.</p>
+
+        {serviceTypes.length === 0 ? (
+          <p className="text-sm text-stone-400">No active service types found. Add service types before setting prices.</p>
+        ) : (
+          <>
+            {/* Service type selector */}
+            {serviceTypes.length > 1 && (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {serviceTypes.map(st => (
+                  <button
+                    key={st.id}
+                    onClick={() => setSelectedServiceType(st.id)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      selectedServiceType === st.id
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                    }`}
+                  >
+                    {st.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Frequency tabs */}
+            <div className="flex gap-1.5 mb-4 flex-wrap">
+              {FREQUENCIES.map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => setSelectedFrequency(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    selectedFrequency === f.value
+                      ? 'bg-stone-800 text-white'
+                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Price grid: rows = bedrooms, cols = bathrooms */}
+            <div className="overflow-x-auto">
+              <table className="text-xs">
+                <thead>
+                  <tr>
+                    <th className="pb-2 pr-4 text-stone-400 font-medium text-left">Beds / Baths</th>
+                    {BATH_OPTIONS.map(b => (
+                      <th key={b} className="pb-2 px-2 text-stone-400 font-medium text-center">{b} bath</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {BED_OPTIONS.map(beds => (
+                    <tr key={beds}>
+                      <td className="py-1.5 pr-4 text-stone-500 font-medium whitespace-nowrap">{beds} bed</td>
+                      {BATH_OPTIONS.map(baths => (
+                        <td key={baths} className="py-1.5 px-1">
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-stone-400 text-xs pointer-events-none">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="5"
+                              placeholder="—"
+                              disabled={!canEdit}
+                              value={getPricingValue(selectedServiceType, selectedFrequency, beds, baths)}
+                              onChange={e => updatePricingValue(selectedServiceType, selectedFrequency, beds, baths, e.target.value)}
+                              className="w-20 pl-5 pr-1 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 bg-stone-50 focus:outline-none focus:ring-1 focus:ring-emerald-600 text-right disabled:opacity-60"
+                            />
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {canEdit && (
+              <button
+                onClick={savePricing}
+                disabled={pricingSaving}
+                className="mt-4 px-4 py-2 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50 transition-colors"
+              >
+                {pricingSaving ? 'Saving…' : 'Save Pricing'}
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {canEdit && (

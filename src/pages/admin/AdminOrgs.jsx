@@ -61,6 +61,15 @@ function ConfirmModal({ title, message, onConfirm, onCancel, danger = true }) {
 const INPUT = 'w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm text-stone-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600'
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
+const FREQUENCIES = [
+  { value: 'one_time',  label: 'One-time' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Biweekly' },
+  { value: 'monthly',  label: 'Monthly' },
+]
+const BED_OPTIONS  = [1, 2, 3, 4, 5]
+const BATH_OPTIONS = [1, 2, 3, 4]
+
 // ─── Add User Modal ───────────────────────────────────────────
 
 function AddUserModal({ orgId, onClose, onAdded, adminUser }) {
@@ -287,12 +296,14 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   const { showToast } = useToast()
   const [form, setForm] = useState({
     name:               org.name,
+    slug:               org.slug || '',
     tier:               org.subscription_tier,
     status:             org.subscription_status,
     addOns:             org.add_ons || [],
     isFoundingCustomer: org.is_founding_customer,
     trialEndsAt:        org.trial_ends_at ? org.trial_ends_at.slice(0, 10) : '',
   })
+  const [slugEdited, setSlugEdited]   = useState(false)
   const [users, setUsers]             = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
   const [saving, setSaving]           = useState(false)
@@ -301,7 +312,24 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   const [auditEntries, setAuditEntries] = useState([])
   const [auditLoading, setAuditLoading] = useState(true)
 
-  function setField(k, v) { setForm(p => ({ ...p, [k]: v })) }
+  // Pricing matrix state
+  const [pricingOpen, setPricingOpen]                 = useState(false)
+  const [pricingLoaded, setPricingLoaded]             = useState(false)
+  const [pmServiceTypes, setPmServiceTypes]           = useState([])
+  const [selectedServiceType, setSelectedServiceType] = useState(null)
+  const [selectedFrequency, setSelectedFrequency]     = useState('one_time')
+  const [pricingData, setPricingData]                 = useState({})
+  const [pricingSaving, setPricingSaving]             = useState(false)
+
+  function setField(k, v) {
+    setForm(p => {
+      const next = { ...p, [k]: v }
+      if (k === 'name' && !slugEdited) {
+        next.slug = v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      }
+      return next
+    })
+  }
 
   function toggleAddOn(slug) {
     setForm(p => ({
@@ -331,15 +359,75 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     setUsersLoading(false)
   }
 
+  async function loadPricingForOrg() {
+    const { data: types } = await supabase
+      .from('service_types')
+      .select('id, name')
+      .eq('org_id', org.id)
+      .eq('is_active', true)
+      .order('name')
+    const stList = types || []
+    setPmServiceTypes(stList)
+    if (stList.length > 0) setSelectedServiceType(stList[0].id)
+
+    const { data: matrix } = await supabase
+      .from('pricing_matrix')
+      .select('*')
+      .eq('org_id', org.id)
+    const map = {}
+    for (const row of matrix || []) {
+      map[`${row.service_type_id}:${row.frequency}:${row.bedrooms}:${row.bathrooms}`] = String(row.price)
+    }
+    setPricingData(map)
+    setPricingLoaded(true)
+  }
+
+  function getPricingValue(stId, freq, beds, baths) {
+    return pricingData[`${stId}:${freq}:${beds}:${baths}`] || ''
+  }
+
+  function updatePricingValue(stId, freq, beds, baths, val) {
+    setPricingData(prev => ({ ...prev, [`${stId}:${freq}:${beds}:${baths}`]: val }))
+  }
+
+  async function savePricingForOrg() {
+    if (!selectedServiceType) return
+    setPricingSaving(true)
+    const rows = []
+    for (const { value: freq } of FREQUENCIES) {
+      for (const beds of BED_OPTIONS) {
+        for (const baths of BATH_OPTIONS) {
+          const val = getPricingValue(selectedServiceType, freq, beds, baths)
+          if (val !== '' && !isNaN(Number(val)) && Number(val) > 0) {
+            rows.push({ org_id: org.id, service_type_id: selectedServiceType, bedrooms: beds, bathrooms: baths, frequency: freq, price: Number(val) })
+          }
+        }
+      }
+    }
+    await supabase.from('pricing_matrix').delete().eq('org_id', org.id).eq('service_type_id', selectedServiceType)
+    if (rows.length > 0) {
+      const { error } = await supabase.from('pricing_matrix').insert(rows)
+      if (error) {
+        showToast('Failed to save pricing. Please try again.', 'error')
+        setPricingSaving(false)
+        return
+      }
+    }
+    showToast(`Pricing saved — ${rows.length} price${rows.length !== 1 ? 's' : ''} set`)
+    setPricingSaving(false)
+  }
+
   async function saveOrg() {
     setSaving(true)
     const changes = {}
     if (form.name.trim() !== org.name) changes.name = { from: org.name, to: form.name.trim() }
+    if (form.slug !== org.slug) changes.slug = { from: org.slug, to: form.slug }
     if (form.tier !== org.subscription_tier) changes.subscription_tier = { from: org.subscription_tier, to: form.tier }
     if (form.status !== org.subscription_status) changes.subscription_status = { from: org.subscription_status, to: form.status }
 
     const { error } = await supabase.from('organizations').update({
       name:                 form.name.trim(),
+      slug:                 form.slug,
       subscription_tier:   form.tier,
       subscription_status: form.status,
       add_ons:             form.addOns,
@@ -416,6 +504,23 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
               <div>
                 <label className="block text-xs text-stone-500 mb-1">Business name</label>
                 <input value={form.name} onChange={e => setField('name', e.target.value)} className={INPUT} />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Org Slug</label>
+                <input
+                  value={form.slug}
+                  onChange={e => {
+                    setSlugEdited(true)
+                    setField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/--+/g, '-'))
+                  }}
+                  placeholder="org-slug"
+                  className={INPUT}
+                />
+                {form.slug && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    Booking URL: <span className="font-mono text-stone-600">timelyops.com/book/{form.slug}</span>
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -574,6 +679,113 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
                     </span>
                   </div>
                 ))}
+              </div>
+            )}
+          </section>
+          {/* Pricing Matrix */}
+          <section className="border-t border-stone-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Pricing Matrix</h3>
+              <button
+                onClick={() => {
+                  const next = !pricingOpen
+                  setPricingOpen(next)
+                  if (next && !pricingLoaded) loadPricingForOrg()
+                }}
+                className="text-xs text-emerald-700 font-medium hover:underline"
+              >
+                {pricingOpen ? 'Collapse' : 'Manage'}
+              </button>
+            </div>
+
+            {pricingOpen && (
+              <div>
+                {pmServiceTypes.length === 0 ? (
+                  <p className="text-sm text-stone-400">No active service types for this org.</p>
+                ) : (
+                  <>
+                    {/* Service type tabs */}
+                    {pmServiceTypes.length > 1 && (
+                      <div className="flex gap-1.5 mb-3 flex-wrap">
+                        {pmServiceTypes.map(st => (
+                          <button
+                            key={st.id}
+                            onClick={() => setSelectedServiceType(st.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                              selectedServiceType === st.id
+                                ? 'bg-emerald-700 text-white'
+                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                            }`}
+                          >
+                            {st.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Frequency tabs */}
+                    <div className="flex gap-1 mb-3 flex-wrap">
+                      {FREQUENCIES.map(f => (
+                        <button
+                          key={f.value}
+                          onClick={() => setSelectedFrequency(f.value)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                            selectedFrequency === f.value
+                              ? 'bg-stone-800 text-white'
+                              : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Price grid */}
+                    <div className="overflow-x-auto">
+                      <table className="text-xs">
+                        <thead>
+                          <tr>
+                            <th className="pb-2 pr-3 text-stone-400 font-medium text-left">Beds\Baths</th>
+                            {BATH_OPTIONS.map(b => (
+                              <th key={b} className="pb-2 px-1 text-stone-400 font-medium text-center">{b}ba</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {BED_OPTIONS.map(beds => (
+                            <tr key={beds}>
+                              <td className="py-1 pr-3 text-stone-500 font-medium">{beds}bd</td>
+                              {BATH_OPTIONS.map(baths => (
+                                <td key={baths} className="py-1 px-1">
+                                  <div className="relative">
+                                    <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-stone-400 text-xs pointer-events-none">$</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="5"
+                                      placeholder="—"
+                                      value={getPricingValue(selectedServiceType, selectedFrequency, beds, baths)}
+                                      onChange={e => updatePricingValue(selectedServiceType, selectedFrequency, beds, baths, e.target.value)}
+                                      className="w-16 pl-4 pr-1 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 bg-stone-50 focus:outline-none focus:ring-1 focus:ring-emerald-600 text-right"
+                                    />
+                                  </div>
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <button
+                      onClick={savePricingForOrg}
+                      disabled={pricingSaving}
+                      className="mt-3 w-full py-2 bg-emerald-700 text-white text-xs font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50"
+                    >
+                      {pricingSaving ? 'Saving…' : 'Save Pricing'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </section>
