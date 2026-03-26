@@ -74,35 +74,54 @@ const BATH_OPTIONS = [1, 2, 3, 4]
 // ─── Shared helpers ───────────────────────────────────────────
 
 // Copy profile service types into an org (skips names that already exist).
-// Returns the number of new service types added.
-async function applyProfilesToOrg(orgId, profileIds) {
-  if (!profileIds || profileIds.length === 0) return 0
+// Returns { totalAdded, totalSkipped, perProfile: [{ name, added, skipped }] }
+async function applyProfilesToOrg(orgId, profileIds, profileNameMap = {}) {
+  if (!profileIds || profileIds.length === 0) return { totalAdded: 0, totalSkipped: 0, perProfile: [] }
 
-  const { data: profileSTs } = await supabase
-    .from('profile_service_types')
-    .select('name, default_duration_minutes, profile_id')
-    .in('profile_id', profileIds)
+  const [{ data: profileSTs }, { data: existingSTs }] = await Promise.all([
+    supabase
+      .from('profile_service_types')
+      .select('name, description, default_duration_minutes, profile_id')
+      .in('profile_id', profileIds)
+      .order('sort_order'),
+    supabase
+      .from('service_types')
+      .select('name')
+      .eq('org_id', orgId),
+  ])
 
-  const { data: existingSTs } = await supabase
-    .from('service_types')
-    .select('name')
-    .eq('org_id', orgId)
   const existingNames = new Set((existingSTs || []).map(st => st.name.toLowerCase()))
 
-  // Deduplicate within profileSTs themselves (multiple profiles may share a name)
-  const seen = new Set()
-  const toInsert = (profileSTs || [])
-    .filter(st => {
+  // Per-profile tracking
+  const perProfile = []
+  const seenGlobal = new Set() // prevent cross-profile duplicates
+  const toInsert = []
+
+  for (const pid of profileIds) {
+    const pName = profileNameMap[pid] || pid
+    const sts = (profileSTs || []).filter(st => st.profile_id === pid)
+    let added = 0
+    let skipped = 0
+
+    for (const st of sts) {
       const key = st.name.toLowerCase()
-      if (existingNames.has(key) || seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .map(st => ({
-      org_id: orgId,
-      name: st.name,
-      default_duration_minutes: st.default_duration_minutes,
-    }))
+      if (existingNames.has(key) || seenGlobal.has(key)) {
+        skipped++
+      } else {
+        seenGlobal.add(key)
+        toInsert.push({
+          org_id: orgId,
+          name: st.name,
+          description: st.description || null,
+          default_duration_minutes: st.default_duration_minutes,
+          is_active: true,
+        })
+        added++
+      }
+    }
+
+    perProfile.push({ name: pName, added, skipped })
+  }
 
   if (toInsert.length > 0) {
     await supabase.from('service_types').insert(toInsert)
@@ -111,7 +130,20 @@ async function applyProfilesToOrg(orgId, profileIds) {
   const records = profileIds.map(pid => ({ org_id: orgId, profile_id: pid }))
   await supabase.from('organization_profiles').upsert(records, { onConflict: 'org_id,profile_id' })
 
-  return toInsert.length
+  const totalAdded = toInsert.length
+  const totalSkipped = perProfile.reduce((s, p) => s + p.skipped, 0)
+  return { totalAdded, totalSkipped, perProfile }
+}
+
+function buildApplyToast({ totalAdded, totalSkipped, perProfile }) {
+  const parts = perProfile
+    .filter(p => p.added > 0)
+    .map(p => `${p.added} from ${p.name}`)
+  let msg = parts.length > 0
+    ? `Added ${parts.join(', ')}.`
+    : 'No new service types to add.'
+  if (totalSkipped > 0) msg += ` ${totalSkipped} already existed and were skipped.`
+  return msg
 }
 
 // ─── Add User Modal ───────────────────────────────────────────
@@ -242,7 +274,8 @@ function CreateOrgModal({ onClose, onCreated, adminUser }) {
       if (userErr) throw userErr
 
       if (selectedProfileIds.length > 0) {
-        await applyProfilesToOrg(org.id, selectedProfileIds)
+        const nameMap = Object.fromEntries(availableProfiles.map(p => [p.id, p.name]))
+        await applyProfilesToOrg(org.id, selectedProfileIds, nameMap)
       }
 
       if (adminUser) {
@@ -537,8 +570,9 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   async function saveProfiles() {
     if (selectedProfileIds.length === 0) return
     setProfilesSaving(true)
-    const added = await applyProfilesToOrg(org.id, selectedProfileIds)
-    showToast(added > 0 ? `Profiles applied — ${added} service type${added !== 1 ? 's' : ''} added` : 'Profiles applied (no new service types to add)')
+    const nameMap = Object.fromEntries(availableProfiles.map(p => [p.id, p.name]))
+    const result = await applyProfilesToOrg(org.id, selectedProfileIds, nameMap)
+    showToast(buildApplyToast(result))
     await loadProfilesForOrg()
     setProfilesSaving(false)
   }
@@ -546,8 +580,9 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   async function reapplyProfiles() {
     if (appliedProfileIds.length === 0) return
     setProfilesSaving(true)
-    const added = await applyProfilesToOrg(org.id, appliedProfileIds)
-    showToast(added > 0 ? `Reapplied — ${added} new service type${added !== 1 ? 's' : ''} added` : 'Up to date — no new service types to add')
+    const nameMap = Object.fromEntries(availableProfiles.map(p => [p.id, p.name]))
+    const result = await applyProfilesToOrg(org.id, appliedProfileIds, nameMap)
+    showToast(buildApplyToast(result))
     setProfilesSaving(false)
   }
 
