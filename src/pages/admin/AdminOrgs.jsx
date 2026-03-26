@@ -71,6 +71,49 @@ const FREQUENCIES = [
 const BED_OPTIONS  = [1, 2, 3, 4, 5]
 const BATH_OPTIONS = [1, 2, 3, 4]
 
+// ─── Shared helpers ───────────────────────────────────────────
+
+// Copy profile service types into an org (skips names that already exist).
+// Returns the number of new service types added.
+async function applyProfilesToOrg(orgId, profileIds) {
+  if (!profileIds || profileIds.length === 0) return 0
+
+  const { data: profileSTs } = await supabase
+    .from('profile_service_types')
+    .select('name, default_duration_minutes, profile_id')
+    .in('profile_id', profileIds)
+
+  const { data: existingSTs } = await supabase
+    .from('service_types')
+    .select('name')
+    .eq('org_id', orgId)
+  const existingNames = new Set((existingSTs || []).map(st => st.name.toLowerCase()))
+
+  // Deduplicate within profileSTs themselves (multiple profiles may share a name)
+  const seen = new Set()
+  const toInsert = (profileSTs || [])
+    .filter(st => {
+      const key = st.name.toLowerCase()
+      if (existingNames.has(key) || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map(st => ({
+      org_id: orgId,
+      name: st.name,
+      default_duration_minutes: st.default_duration_minutes,
+    }))
+
+  if (toInsert.length > 0) {
+    await supabase.from('service_types').insert(toInsert)
+  }
+
+  const records = profileIds.map(pid => ({ org_id: orgId, profile_id: pid }))
+  await supabase.from('organization_profiles').upsert(records, { onConflict: 'org_id,profile_id' })
+
+  return toInsert.length
+}
+
 // ─── Add User Modal ───────────────────────────────────────────
 
 function AddUserModal({ orgId, onClose, onAdded, adminUser }) {
@@ -143,10 +186,25 @@ function CreateOrgModal({ onClose, onCreated, adminUser }) {
     name: '', ownerName: '', ownerEmail: '', ownerPhone: '',
     tier: 'starter', status: 'active', isFoundingCustomer: false, trialEndsAt: '',
   })
-  const [loading, setLoading] = useState(false)
-  const [created, setCreated] = useState(null)
+  const [loading, setLoading]               = useState(false)
+  const [created, setCreated]               = useState(null)
+  const [availableProfiles, setAvailableProfiles] = useState([])
+  const [selectedProfileIds, setSelectedProfileIds] = useState([])
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })) }
+
+  function toggleProfile(id) {
+    setSelectedProfileIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  useEffect(() => {
+    supabase
+      .from('industry_profiles')
+      .select('id, name, description')
+      .eq('is_active', true)
+      .order('sort_order')
+      .then(({ data }) => setAvailableProfiles(data || []))
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -182,6 +240,10 @@ function CreateOrgModal({ onClose, onCreated, adminUser }) {
         auth_linked: false,
       })
       if (userErr) throw userErr
+
+      if (selectedProfileIds.length > 0) {
+        await applyProfilesToOrg(org.id, selectedProfileIds)
+      }
 
       if (adminUser) {
         await logAudit({ supabase, user: adminUser, action: 'create', entityType: 'organization', entityId: org.id, changes: { name: form.name.trim(), subscription_tier: form.tier, subscription_status: form.status }, metadata: { source: 'admin_panel' } })
@@ -277,6 +339,29 @@ function CreateOrgModal({ onClose, onCreated, adminUser }) {
             </label>
           </div>
 
+          {availableProfiles.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-3">Industry Profiles</p>
+              <p className="text-xs text-stone-400 mb-2">Select profiles to pre-populate service types for this org.</p>
+              <div className="space-y-1.5">
+                {availableProfiles.map(p => (
+                  <label key={p.id} className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedProfileIds.includes(p.id)}
+                      onChange={() => toggleProfile(p.id)}
+                      className="w-4 h-4 mt-0.5 rounded accent-emerald-700 flex-shrink-0"
+                    />
+                    <div>
+                      <span className="text-sm text-stone-700 font-medium">{p.name}</span>
+                      {p.description && <span className="text-xs text-stone-400 ml-1.5">{p.description}</span>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-50">
               Cancel
@@ -329,6 +414,14 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   const [stEditing, setStEditing]                     = useState(null)
   const [stEditForm, setStEditForm]                   = useState({})
   const [stSaving, setStSaving]                       = useState(false)
+
+  // Industry profiles state
+  const [profilesOpen, setProfilesOpen]               = useState(false)
+  const [profilesLoaded, setProfilesLoaded]           = useState(false)
+  const [availableProfiles, setAvailableProfiles]     = useState([])
+  const [appliedProfileIds, setAppliedProfileIds]     = useState([])
+  const [selectedProfileIds, setSelectedProfileIds]   = useState([])
+  const [profilesSaving, setProfilesSaving]           = useState(false)
 
   function setField(k, v) {
     setForm(p => {
@@ -427,6 +520,35 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     const { error } = await supabase.from('service_types').delete().eq('id', id)
     if (error) { showToast('Failed to delete service type. It may be in use.', 'error') }
     else { await loadPricingForOrg() }
+  }
+
+  async function loadProfilesForOrg() {
+    const [{ data: allProfiles }, { data: applied }] = await Promise.all([
+      supabase.from('industry_profiles').select('id, name, description').eq('is_active', true).order('sort_order'),
+      supabase.from('organization_profiles').select('profile_id').eq('org_id', org.id),
+    ])
+    const appliedIds = (applied || []).map(r => r.profile_id)
+    setAvailableProfiles(allProfiles || [])
+    setAppliedProfileIds(appliedIds)
+    setSelectedProfileIds(appliedIds)
+    setProfilesLoaded(true)
+  }
+
+  async function saveProfiles() {
+    if (selectedProfileIds.length === 0) return
+    setProfilesSaving(true)
+    const added = await applyProfilesToOrg(org.id, selectedProfileIds)
+    showToast(added > 0 ? `Profiles applied — ${added} service type${added !== 1 ? 's' : ''} added` : 'Profiles applied (no new service types to add)')
+    await loadProfilesForOrg()
+    setProfilesSaving(false)
+  }
+
+  async function reapplyProfiles() {
+    if (appliedProfileIds.length === 0) return
+    setProfilesSaving(true)
+    const added = await applyProfilesToOrg(org.id, appliedProfileIds)
+    showToast(added > 0 ? `Reapplied — ${added} new service type${added !== 1 ? 's' : ''} added` : 'Up to date — no new service types to add')
+    setProfilesSaving(false)
   }
 
   function getPricingValue(stId, freq, beds, baths) {
@@ -729,6 +851,87 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
               </div>
             )}
           </section>
+          {/* Industry Profiles */}
+          <section className="border-t border-stone-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Industry Profiles</h3>
+              <button
+                onClick={() => {
+                  const next = !profilesOpen
+                  setProfilesOpen(next)
+                  if (next && !profilesLoaded) loadProfilesForOrg()
+                }}
+                className="text-xs text-emerald-700 font-medium hover:underline"
+              >
+                {profilesOpen ? 'Collapse' : 'Manage'}
+              </button>
+            </div>
+
+            {profilesOpen && (
+              <div>
+                {appliedProfileIds.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-stone-400 mb-1.5">Applied:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {availableProfiles
+                        .filter(p => appliedProfileIds.includes(p.id))
+                        .map(p => (
+                          <span key={p.id} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
+                            {p.name}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {availableProfiles.length === 0 ? (
+                  <p className="text-xs text-stone-400">No active industry profiles. Create them at <span className="font-mono">/admin/profiles</span>.</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-stone-400 mb-2">Select profiles to apply service types to this org:</p>
+                    <div className="space-y-1.5 mb-3">
+                      {availableProfiles.map(p => (
+                        <label key={p.id} className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedProfileIds.includes(p.id)}
+                            onChange={() => setSelectedProfileIds(prev =>
+                              prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
+                            )}
+                            className="w-3.5 h-3.5 mt-0.5 rounded accent-emerald-700 flex-shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <span className="text-xs font-medium text-stone-700">{p.name}</span>
+                            {p.description && <span className="text-[10px] text-stone-400 ml-1">{p.description}</span>}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={saveProfiles}
+                        disabled={profilesSaving || selectedProfileIds.length === 0}
+                        className="flex-1 py-2 bg-emerald-700 text-white text-xs font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50"
+                      >
+                        {profilesSaving ? 'Applying…' : 'Apply Selected'}
+                      </button>
+                      {appliedProfileIds.length > 0 && (
+                        <button
+                          onClick={reapplyProfiles}
+                          disabled={profilesSaving}
+                          className="flex-1 py-2 border border-stone-200 text-stone-600 text-xs font-medium rounded-xl hover:bg-stone-50 disabled:opacity-50"
+                          title="Re-adds any service types from applied profiles that don't exist yet. Won't overwrite customizations."
+                        >
+                          Reapply
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </section>
+
           {/* Pricing Matrix */}
           <section className="border-t border-stone-100 pt-4">
             <div className="flex items-center justify-between mb-3">

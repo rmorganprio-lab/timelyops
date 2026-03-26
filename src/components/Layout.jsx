@@ -41,10 +41,11 @@ function NavIcon({ name, size = 20 }) {
 }
 
 const ADMIN_SUB_NAV = [
-  { to: '/admin',        label: 'Overview',       end: true  },
-  { to: '/admin/orgs',   label: 'Organizations',  end: false },
-  { to: '/admin/users',  label: 'Users',          end: false },
-  { to: '/admin/audit',  label: 'Audit Log',      end: false },
+  { to: '/admin',            label: 'Overview',       end: true  },
+  { to: '/admin/orgs',       label: 'Organizations',  end: false },
+  { to: '/admin/users',      label: 'Users',          end: false },
+  { to: '/admin/audit',      label: 'Audit Log',      end: false },
+  { to: '/admin/profiles',   label: 'Profiles',       end: false },
 ]
 
 export default function Layout({ user }) {

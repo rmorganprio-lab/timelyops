@@ -19,6 +19,7 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminOrgs from './pages/admin/AdminOrgs'
 import AdminUsers from './pages/admin/AdminUsers'
 import AdminAudit from './pages/admin/AdminAudit'
+import AdminProfiles from './pages/admin/AdminProfiles'
 import Settings from './pages/Settings'
 import QuoteApproval from './pages/QuoteApproval'
 import InvoiceView from './pages/InvoiceView'
@@ -67,6 +68,7 @@ function AppRoutes({ user, session }) {
             <Route path="admin/orgs" element={<AdminGuard user={user}><ErrorBoundary><AdminOrgs user={user} /></ErrorBoundary></AdminGuard>} />
             <Route path="admin/users" element={<AdminGuard user={user}><ErrorBoundary><AdminUsers user={user} /></ErrorBoundary></AdminGuard>} />
             <Route path="admin/audit" element={<AdminGuard user={user}><ErrorBoundary><AdminAudit /></ErrorBoundary></AdminGuard>} />
+            <Route path="admin/profiles" element={<AdminGuard user={user}><ErrorBoundary><AdminProfiles /></ErrorBoundary></AdminGuard>} />
           </Route>
 
           {/* Public token-based pages — no auth required */}
