@@ -1016,7 +1016,7 @@ function MonthView({ days, year, month, today, jobsOnDate, dateStr, timeFormat, 
                 {dayJobs.length > 0 && <span className="text-[10px] text-stone-400">{dayJobs.length}</span>}
               </div>
               <div className="space-y-0.5">
-                {dayJobs.slice(0,3).map(j => <div key={j.id} className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${j.status==='completed'?'bg-emerald-50 text-emerald-600':j.status==='in_progress'?'bg-amber-50 text-amber-600':j.status==='cancelled'?'bg-stone-50 text-stone-400 line-through':'bg-blue-50 text-blue-600'}`}>{formatTime(j.start_time, timeFormat)} {j.title}</div>)}
+                {dayJobs.slice(0,3).map(j => <div key={j.id} className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate ${j.status==='completed'?'bg-emerald-50 text-emerald-600':j.status==='in_progress'?'bg-amber-50 text-amber-600':j.status==='cancelled'?'bg-stone-50 text-stone-400 line-through':'bg-blue-50 text-blue-600'}`}>{j.start_time ? formatTime(j.start_time, timeFormat) + ' ' : ''}{j.title}</div>)}
                 {dayJobs.length > 3 && <div className="text-[10px] text-stone-400 pl-1">+{dayJobs.length-3} more</div>}
               </div>
             </div>
@@ -1042,7 +1042,7 @@ function WeekView({ days, today, jobsOnDate, onJobClick, onAddJob, timeFormat })
               <div className="p-1 space-y-1">
                 {dayJobs.map(j => (
                   <div key={j.id} onClick={() => onJobClick(j)} className={`p-1.5 rounded-lg text-[10px] cursor-pointer hover:opacity-80 ${j.status==='completed'?'bg-emerald-50 border border-emerald-100':j.status==='in_progress'?'bg-amber-50 border border-amber-100':j.status==='cancelled'?'bg-stone-50 border border-stone-100':'bg-blue-50 border border-blue-100'}`}>
-                    <div className="font-medium truncate">{formatTime(j.start_time, timeFormat)} {j.title}</div>
+                    <div className="font-medium truncate">{j.start_time ? formatTime(j.start_time, timeFormat) + ' ' : ''}{j.title}</div>
                     <div className="text-stone-500 truncate">{formatName(j.clients?.first_name, j.clients?.last_name) || j.clients?.name}</div>
                     {(formatAddress(j.clients || {}) || j.clients?.address) && <div className="text-stone-400 truncate">{formatAddress(j.clients || {}) || j.clients?.address}</div>}
                   </div>

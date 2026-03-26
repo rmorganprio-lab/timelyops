@@ -317,11 +317,18 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   const [pricingOpen, setPricingOpen]                 = useState(false)
   const [pricingLoaded, setPricingLoaded]             = useState(false)
   const [pmServiceTypes, setPmServiceTypes]           = useState([])
+  const [pmAllServiceTypes, setPmAllServiceTypes]     = useState([])
   const [selectedServiceType, setSelectedServiceType] = useState(null)
   const [selectedFrequency, setSelectedFrequency]     = useState('one_time')
   const [pricingData, setPricingData]                 = useState({})
   const [pricingSaving, setPricingSaving]             = useState(false)
   const [showPricingImport, setShowPricingImport]     = useState(false)
+
+  // Service types management state (within pricing panel)
+  const [stForm, setStForm]                           = useState({ name: '', default_duration_minutes: 120 })
+  const [stEditing, setStEditing]                     = useState(null)
+  const [stEditForm, setStEditForm]                   = useState({})
+  const [stSaving, setStSaving]                       = useState(false)
 
   function setField(k, v) {
     setForm(p => {
@@ -362,15 +369,16 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   }
 
   async function loadPricingForOrg() {
-    const { data: types } = await supabase
+    const { data: allTypes } = await supabase
       .from('service_types')
-      .select('id, name')
+      .select('id, name, default_duration_minutes, is_active')
       .eq('org_id', org.id)
-      .eq('is_active', true)
       .order('name')
-    const stList = types || []
-    setPmServiceTypes(stList)
-    if (stList.length > 0) setSelectedServiceType(stList[0].id)
+    const all = allTypes || []
+    setPmAllServiceTypes(all)
+    const activeList = all.filter(t => t.is_active)
+    setPmServiceTypes(activeList)
+    if (activeList.length > 0) setSelectedServiceType(prev => prev || activeList[0].id)
 
     const { data: matrix } = await supabase
       .from('pricing_matrix')
@@ -382,6 +390,43 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     }
     setPricingData(map)
     setPricingLoaded(true)
+  }
+
+  async function addServiceTypeForOrg() {
+    if (!stForm.name.trim()) return
+    setStSaving(true)
+    const { error } = await supabase.from('service_types').insert({
+      org_id: org.id,
+      name: stForm.name.trim(),
+      default_duration_minutes: Number(stForm.default_duration_minutes) || 120,
+    })
+    if (error) { showToast('Failed to add service type.', 'error') }
+    else { setStForm({ name: '', default_duration_minutes: 120 }); await loadPricingForOrg() }
+    setStSaving(false)
+  }
+
+  async function saveEditServiceTypeForOrg(id) {
+    if (!stEditForm.name?.trim()) return
+    setStSaving(true)
+    const { error } = await supabase.from('service_types').update({
+      name: stEditForm.name.trim(),
+      default_duration_minutes: Number(stEditForm.default_duration_minutes) || 120,
+    }).eq('id', id)
+    if (error) { showToast('Failed to update service type.', 'error') }
+    else { setStEditing(null); await loadPricingForOrg() }
+    setStSaving(false)
+  }
+
+  async function toggleServiceTypeActiveForOrg(st) {
+    const { error } = await supabase.from('service_types').update({ is_active: !st.is_active }).eq('id', st.id)
+    if (error) { showToast('Failed to update service type.', 'error') }
+    else { await loadPricingForOrg() }
+  }
+
+  async function deleteServiceTypeForOrg(id) {
+    const { error } = await supabase.from('service_types').delete().eq('id', id)
+    if (error) { showToast('Failed to delete service type. It may be in use.', 'error') }
+    else { await loadPricingForOrg() }
   }
 
   function getPricingValue(stId, freq, beds, baths) {
@@ -702,6 +747,69 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
 
             {pricingOpen && (
               <div>
+                {/* Service Types Management */}
+                <div className="mb-4">
+                  <p className="text-xs text-stone-400 mb-2 font-medium">Service Types</p>
+                  <div className="space-y-1.5 mb-2">
+                    {pmAllServiceTypes.length === 0 && (
+                      <p className="text-xs text-stone-400">No service types yet.</p>
+                    )}
+                    {pmAllServiceTypes.map(st => (
+                      <div key={st.id} className="flex items-center gap-1.5 p-2 border border-stone-100 rounded-lg">
+                        {stEditing === st.id ? (
+                          <>
+                            <input
+                              className="flex-1 px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                              value={stEditForm.name}
+                              onChange={e => setStEditForm(p => ({ ...p, name: e.target.value }))}
+                            />
+                            <input
+                              type="number" min="15" step="15"
+                              className="w-16 px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                              value={stEditForm.default_duration_minutes}
+                              onChange={e => setStEditForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+                            />
+                            <button onClick={() => saveEditServiceTypeForOrg(st.id)} disabled={stSaving} className="px-2 py-1 bg-emerald-700 text-white text-xs rounded-lg hover:bg-emerald-800 disabled:opacity-50">Save</button>
+                            <button onClick={() => setStEditing(null)} className="px-2 py-1 border border-stone-200 text-stone-600 text-xs rounded-lg hover:bg-stone-50">Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <span className={`flex-1 text-xs ${st.is_active ? 'text-stone-800 font-medium' : 'text-stone-400 line-through'}`}>{st.name}</span>
+                            <span className="text-[10px] text-stone-400">{st.default_duration_minutes}m</span>
+                            <button onClick={() => toggleServiceTypeActiveForOrg(st)} className={`px-2 py-0.5 rounded text-[10px] font-medium ${st.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>
+                              {st.is_active ? 'Active' : 'Off'}
+                            </button>
+                            <button onClick={() => { setStEditing(st.id); setStEditForm({ name: st.name, default_duration_minutes: st.default_duration_minutes }) }} className="p-1 text-stone-400 hover:text-stone-600 rounded hover:bg-stone-50">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button onClick={() => deleteServiceTypeForOrg(st.id)} className="p-1 text-stone-400 hover:text-red-500 rounded hover:bg-red-50">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <input
+                      className="flex-1 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                      placeholder="New service type"
+                      value={stForm.name}
+                      onChange={e => setStForm(p => ({ ...p, name: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') addServiceTypeForOrg() }}
+                    />
+                    <input
+                      type="number" min="15" step="15"
+                      className="w-16 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                      placeholder="120m"
+                      value={stForm.default_duration_minutes}
+                      onChange={e => setStForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+                    />
+                    <button onClick={addServiceTypeForOrg} disabled={stSaving || !stForm.name.trim()} className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50">Add</button>
+                  </div>
+                </div>
+
+                {/* Pricing Matrix */}
                 {pmServiceTypes.length === 0 ? (
                   <p className="text-sm text-stone-400">No active service types for this org.</p>
                 ) : (

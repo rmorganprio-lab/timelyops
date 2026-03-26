@@ -77,8 +77,15 @@ export default function Settings({ user }) {
   const [pricingSaving, setPricingSaving]             = useState(false)
   const [showPricingImport, setShowPricingImport]     = useState(false)
 
+  // Service types management state
+  const [allServiceTypes, setAllServiceTypes]         = useState([])
+  const [stForm, setStForm]                           = useState({ name: '', default_duration_minutes: 120 })
+  const [stEditing, setStEditing]                     = useState(null)
+  const [stEditForm, setStEditForm]                   = useState({})
+  const [stSaving, setStSaving]                       = useState(false)
+
   useEffect(() => { loadOrg() }, [effectiveOrgId])
-  useEffect(() => { if (effectiveOrgId) loadPricing() }, [effectiveOrgId])
+  useEffect(() => { if (effectiveOrgId) { loadPricing(); loadAllServiceTypes() } }, [effectiveOrgId])
 
   async function loadOrg() {
     setLoading(true)
@@ -161,6 +168,52 @@ export default function Settings({ user }) {
       map[`${row.service_type_id}:${row.frequency}:${row.bedrooms}:${row.bathrooms}`] = String(row.price)
     }
     setPricingData(map)
+  }
+
+  async function loadAllServiceTypes() {
+    const { data } = await supabase
+      .from('service_types')
+      .select('id, name, default_duration_minutes, is_active')
+      .eq('org_id', effectiveOrgId)
+      .order('name')
+    setAllServiceTypes(data || [])
+  }
+
+  async function addServiceType() {
+    if (!stForm.name.trim()) return
+    setStSaving(true)
+    const { error } = await supabase.from('service_types').insert({
+      org_id: effectiveOrgId,
+      name: stForm.name.trim(),
+      default_duration_minutes: Number(stForm.default_duration_minutes) || 120,
+    })
+    if (error) { showToast('Failed to add service type.', 'error') }
+    else { setStForm({ name: '', default_duration_minutes: 120 }); await loadAllServiceTypes(); await loadPricing() }
+    setStSaving(false)
+  }
+
+  async function saveEditServiceType(id) {
+    if (!stEditForm.name?.trim()) return
+    setStSaving(true)
+    const { error } = await supabase.from('service_types').update({
+      name: stEditForm.name.trim(),
+      default_duration_minutes: Number(stEditForm.default_duration_minutes) || 120,
+    }).eq('id', id)
+    if (error) { showToast('Failed to update service type.', 'error') }
+    else { setStEditing(null); await loadAllServiceTypes(); await loadPricing() }
+    setStSaving(false)
+  }
+
+  async function toggleServiceTypeActive(st) {
+    const { error } = await supabase.from('service_types').update({ is_active: !st.is_active }).eq('id', st.id)
+    if (error) { showToast('Failed to update service type.', 'error') }
+    else { await loadAllServiceTypes(); await loadPricing() }
+  }
+
+  async function deleteServiceType(id) {
+    const { error } = await supabase.from('service_types').delete().eq('id', id)
+    if (error) { showToast('Failed to delete service type. It may be in use.', 'error') }
+    else { await loadAllServiceTypes(); await loadPricing() }
   }
 
   function getPricingValue(stId, freq, beds, baths) {
@@ -473,6 +526,90 @@ export default function Settings({ user }) {
         )}
         {errors.paymentMethods && <p className="text-xs text-red-500 mt-2">{errors.paymentMethods}</p>}
       </div>
+
+      {/* Service Types */}
+      {canEdit && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-6 mb-6">
+          <h2 className="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-1">Service Types</h2>
+          <p className="text-xs text-stone-400 mb-4">Define the services you offer. Active types appear in the pricing matrix and booking agent.</p>
+
+          <div className="space-y-2 mb-4">
+            {allServiceTypes.length === 0 && (
+              <p className="text-sm text-stone-400">No service types yet. Add one below.</p>
+            )}
+            {allServiceTypes.map(st => (
+              <div key={st.id} className="flex items-center gap-2 p-3 border border-stone-100 rounded-xl">
+                {stEditing === st.id ? (
+                  <>
+                    <input
+                      className="flex-1 px-2.5 py-1.5 border border-stone-200 rounded-lg text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      value={stEditForm.name}
+                      onChange={e => setStEditForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="Service name"
+                    />
+                    <input
+                      type="number"
+                      min="15"
+                      step="15"
+                      className="w-20 px-2.5 py-1.5 border border-stone-200 rounded-lg text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      value={stEditForm.default_duration_minutes}
+                      onChange={e => setStEditForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+                      placeholder="Mins"
+                    />
+                    <button onClick={() => saveEditServiceType(st.id)} disabled={stSaving} className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50">Save</button>
+                    <button onClick={() => setStEditing(null)} className="px-3 py-1.5 border border-stone-200 text-stone-600 text-xs rounded-lg hover:bg-stone-50">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-sm font-medium ${st.is_active ? 'text-stone-800' : 'text-stone-400 line-through'}`}>{st.name}</span>
+                      <span className="ml-2 text-xs text-stone-400">{st.default_duration_minutes} min</span>
+                    </div>
+                    <button
+                      onClick={() => toggleServiceTypeActive(st)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${st.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}
+                    >
+                      {st.is_active ? 'Active' : 'Inactive'}
+                    </button>
+                    <button onClick={() => { setStEditing(st.id); setStEditForm({ name: st.name, default_duration_minutes: st.default_duration_minutes }) }} className="p-1.5 text-stone-400 hover:text-stone-600 rounded-lg hover:bg-stone-50">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                    </button>
+                    <button onClick={() => deleteServiceType(st.id)} className="p-1.5 text-stone-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              className="flex-1 px-3 py-2.5 border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              placeholder="New service type name"
+              value={stForm.name}
+              onChange={e => setStForm(p => ({ ...p, name: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') addServiceType() }}
+            />
+            <input
+              type="number"
+              min="15"
+              step="15"
+              className="w-24 px-3 py-2.5 border border-stone-200 rounded-xl text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              placeholder="120 min"
+              value={stForm.default_duration_minutes}
+              onChange={e => setStForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+            />
+            <button
+              onClick={addServiceType}
+              disabled={stSaving || !stForm.name.trim()}
+              className="px-4 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Pricing Matrix */}
       <div className="bg-white rounded-2xl border border-stone-200 p-6 mb-6">
