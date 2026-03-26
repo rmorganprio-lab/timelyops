@@ -456,6 +456,10 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   const [appliedProfileIds, setAppliedProfileIds]     = useState([])
   const [selectedProfileIds, setSelectedProfileIds]   = useState([])
   const [profilesSaving, setProfilesSaving]           = useState(false)
+  const [removeProfileConfirm, setRemoveProfileConfirm] = useState(null)
+
+  // Service types panel state (separate from pricing)
+  const [stPanelOpen, setStPanelOpen]                 = useState(false)
 
   function setField(k, v) {
     setForm(p => {
@@ -498,7 +502,7 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
   async function loadPricingForOrg() {
     const { data: allTypes } = await supabase
       .from('service_types')
-      .select('id, name, default_duration_minutes, is_active')
+      .select('id, name, description, default_duration_minutes, is_active')
       .eq('org_id', org.id)
       .order('name')
     const all = allTypes || []
@@ -537,6 +541,7 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
     setStSaving(true)
     const { error } = await supabase.from('service_types').update({
       name: stEditForm.name.trim(),
+      description: stEditForm.description?.trim() || null,
       default_duration_minutes: Number(stEditForm.default_duration_minutes) || 120,
     }).eq('id', id)
     if (error) { showToast('Failed to update service type.', 'error') }
@@ -593,6 +598,40 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
       showToast(err.message, 'error')
     }
     setProfilesSaving(false)
+  }
+
+  async function initiateRemoveProfile(profile) {
+    // Find org service types whose names match this profile's templates
+    const [{ data: psts }, { data: orgSTs }] = await Promise.all([
+      supabase.from('profile_service_types').select('name').eq('profile_id', profile.id),
+      supabase.from('service_types').select('id, name').eq('org_id', org.id),
+    ])
+    const templateNames = new Set((psts || []).map(s => s.name.toLowerCase()))
+    const matchingSTs = (orgSTs || []).filter(st => templateNames.has(st.name.toLowerCase()))
+    const matchingIds = matchingSTs.map(st => st.id)
+
+    let pricingCount = 0
+    if (matchingIds.length > 0) {
+      const { data: pmRows } = await supabase
+        .from('pricing_matrix')
+        .select('id')
+        .in('service_type_id', matchingIds)
+      pricingCount = pmRows?.length ?? 0
+    }
+
+    setRemoveProfileConfirm({ profileId: profile.id, profileName: profile.name, matchingIds, pricingCount })
+  }
+
+  async function doRemoveProfile(deleteServiceTypes) {
+    const { profileId, matchingIds } = removeProfileConfirm
+    await supabase.from('organization_profiles').delete().eq('org_id', org.id).eq('profile_id', profileId)
+    if (deleteServiceTypes && matchingIds.length > 0) {
+      await supabase.from('service_types').delete().in('id', matchingIds)
+    }
+    showToast(deleteServiceTypes ? 'Profile and service types removed' : 'Profile removed')
+    setRemoveProfileConfirm(null)
+    await loadProfilesForOrg()
+    if (pricingLoaded) await loadPricingForOrg()
   }
 
   function getPricingValue(stId, freq, beds, baths) {
@@ -915,13 +954,20 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
               <div>
                 {appliedProfileIds.length > 0 && (
                   <div className="mb-3">
-                    <p className="text-xs text-stone-400 mb-1.5">Applied:</p>
+                    <p className="text-xs text-stone-400 mb-1.5">Applied (click × to remove):</p>
                     <div className="flex flex-wrap gap-1">
                       {availableProfiles
                         .filter(p => appliedProfileIds.includes(p.id))
                         .map(p => (
-                          <span key={p.id} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
+                          <span key={p.id} className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
                             {p.name}
+                            <button
+                              onClick={() => initiateRemoveProfile(p)}
+                              className="ml-0.5 w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-emerald-200 text-emerald-500 hover:text-emerald-800"
+                              title="Remove this profile"
+                            >
+                              ×
+                            </button>
                           </span>
                         ))}
                     </div>
@@ -976,6 +1022,101 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
             )}
           </section>
 
+          {/* Service Types */}
+          <section className="border-t border-stone-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Service Types</h3>
+              <button
+                onClick={() => {
+                  const next = !stPanelOpen
+                  setStPanelOpen(next)
+                  if (next && !pricingLoaded) loadPricingForOrg()
+                }}
+                className="text-xs text-emerald-700 font-medium hover:underline"
+              >
+                {stPanelOpen ? 'Collapse' : 'Manage'}
+              </button>
+            </div>
+
+            {stPanelOpen && (
+              <div>
+                <div className="space-y-1.5 mb-2">
+                  {pmAllServiceTypes.length === 0 && (
+                    <p className="text-xs text-stone-400">No service types yet.</p>
+                  )}
+                  {pmAllServiceTypes.map(st => (
+                    <div key={st.id} className={`border rounded-lg overflow-hidden ${stEditing === st.id ? 'border-emerald-200' : 'border-stone-100'}`}>
+                      {stEditing === st.id ? (
+                        <div className="p-2 space-y-1.5">
+                          <input
+                            autoFocus
+                            className="w-full px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                            value={stEditForm.name}
+                            onChange={e => setStEditForm(p => ({ ...p, name: e.target.value }))}
+                            placeholder="Name"
+                          />
+                          <input
+                            className="w-full px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                            value={stEditForm.description || ''}
+                            onChange={e => setStEditForm(p => ({ ...p, description: e.target.value }))}
+                            placeholder="Description (optional)"
+                          />
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number" min="15" step="15"
+                              className="w-16 px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                              value={stEditForm.default_duration_minutes}
+                              onChange={e => setStEditForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+                            />
+                            <span className="text-[10px] text-stone-400">min</span>
+                            <div className="flex gap-1 ml-auto">
+                              <button onClick={() => saveEditServiceTypeForOrg(st.id)} disabled={stSaving} className="px-2 py-1 bg-emerald-700 text-white text-xs rounded-lg hover:bg-emerald-800 disabled:opacity-50">Save</button>
+                              <button onClick={() => setStEditing(null)} className="px-2 py-1 border border-stone-200 text-stone-600 text-xs rounded-lg hover:bg-stone-50">Cancel</button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 px-2 py-2">
+                          <div className="flex-1 min-w-0">
+                            <span className={`text-xs font-medium ${st.is_active ? 'text-stone-800' : 'text-stone-400 line-through'}`}>{st.name}</span>
+                            <span className="text-[10px] text-stone-400 ml-1.5">{st.default_duration_minutes}m</span>
+                            {st.description && <div className="text-[10px] text-stone-400 truncate">{st.description}</div>}
+                          </div>
+                          <button onClick={() => toggleServiceTypeActiveForOrg(st)} className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium ${st.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>
+                            {st.is_active ? 'Active' : 'Off'}
+                          </button>
+                          <button onClick={() => { setStEditing(st.id); setStEditForm({ name: st.name, description: st.description || '', default_duration_minutes: st.default_duration_minutes }) }} className="flex-shrink-0 p-1 text-stone-400 hover:text-stone-600 rounded hover:bg-stone-50">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                          <button onClick={() => deleteServiceTypeForOrg(st.id)} className="flex-shrink-0 p-1 text-stone-400 hover:text-red-500 rounded hover:bg-red-50">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    className="flex-1 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    placeholder="New service type"
+                    value={stForm.name}
+                    onChange={e => setStForm(p => ({ ...p, name: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') addServiceTypeForOrg() }}
+                  />
+                  <input
+                    type="number" min="15" step="15"
+                    className="w-16 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    placeholder="120m"
+                    value={stForm.default_duration_minutes}
+                    onChange={e => setStForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
+                  />
+                  <button onClick={addServiceTypeForOrg} disabled={stSaving || !stForm.name.trim()} className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50">Add</button>
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* Pricing Matrix */}
           <section className="border-t border-stone-100 pt-4">
             <div className="flex items-center justify-between mb-3">
@@ -994,68 +1135,6 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
 
             {pricingOpen && (
               <div>
-                {/* Service Types Management */}
-                <div className="mb-4">
-                  <p className="text-xs text-stone-400 mb-2 font-medium">Service Types</p>
-                  <div className="space-y-1.5 mb-2">
-                    {pmAllServiceTypes.length === 0 && (
-                      <p className="text-xs text-stone-400">No service types yet.</p>
-                    )}
-                    {pmAllServiceTypes.map(st => (
-                      <div key={st.id} className="flex items-center gap-1.5 p-2 border border-stone-100 rounded-lg">
-                        {stEditing === st.id ? (
-                          <>
-                            <input
-                              className="flex-1 px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                              value={stEditForm.name}
-                              onChange={e => setStEditForm(p => ({ ...p, name: e.target.value }))}
-                            />
-                            <input
-                              type="number" min="15" step="15"
-                              className="w-16 px-2 py-1 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                              value={stEditForm.default_duration_minutes}
-                              onChange={e => setStEditForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
-                            />
-                            <button onClick={() => saveEditServiceTypeForOrg(st.id)} disabled={stSaving} className="px-2 py-1 bg-emerald-700 text-white text-xs rounded-lg hover:bg-emerald-800 disabled:opacity-50">Save</button>
-                            <button onClick={() => setStEditing(null)} className="px-2 py-1 border border-stone-200 text-stone-600 text-xs rounded-lg hover:bg-stone-50">Cancel</button>
-                          </>
-                        ) : (
-                          <>
-                            <span className={`flex-1 text-xs ${st.is_active ? 'text-stone-800 font-medium' : 'text-stone-400 line-through'}`}>{st.name}</span>
-                            <span className="text-[10px] text-stone-400">{st.default_duration_minutes}m</span>
-                            <button onClick={() => toggleServiceTypeActiveForOrg(st)} className={`px-2 py-0.5 rounded text-[10px] font-medium ${st.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}`}>
-                              {st.is_active ? 'Active' : 'Off'}
-                            </button>
-                            <button onClick={() => { setStEditing(st.id); setStEditForm({ name: st.name, default_duration_minutes: st.default_duration_minutes }) }} className="p-1 text-stone-400 hover:text-stone-600 rounded hover:bg-stone-50">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
-                            <button onClick={() => deleteServiceTypeForOrg(st.id)} className="p-1 text-stone-400 hover:text-red-500 rounded hover:bg-red-50">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5">
-                    <input
-                      className="flex-1 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                      placeholder="New service type"
-                      value={stForm.name}
-                      onChange={e => setStForm(p => ({ ...p, name: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter') addServiceTypeForOrg() }}
-                    />
-                    <input
-                      type="number" min="15" step="15"
-                      className="w-16 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                      placeholder="120m"
-                      value={stForm.default_duration_minutes}
-                      onChange={e => setStForm(p => ({ ...p, default_duration_minutes: e.target.value }))}
-                    />
-                    <button onClick={addServiceTypeForOrg} disabled={stSaving || !stForm.name.trim()} className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50">Add</button>
-                  </div>
-                </div>
-
                 {/* Pricing Matrix */}
                 {pmServiceTypes.length === 0 ? (
                   <p className="text-sm text-stone-400">No active service types for this org.</p>
@@ -1185,6 +1264,45 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, adminUser }) {
           onClose={() => setShowPricingImport(false)}
           onImported={() => { setShowPricingImport(false); loadPricingForOrg() }}
         />
+      )}
+
+      {removeProfileConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="font-bold text-stone-900 mb-2">Remove profile</h3>
+            <p className="text-stone-500 text-sm mb-1">
+              Remove <span className="font-medium text-stone-700">{removeProfileConfirm.profileName}</span> from this org?
+            </p>
+            {removeProfileConfirm.matchingIds.length > 0 && (
+              <p className="text-stone-400 text-xs mb-4">
+                {removeProfileConfirm.matchingIds.length} matching service type{removeProfileConfirm.matchingIds.length !== 1 ? 's' : ''} found
+                {removeProfileConfirm.pricingCount > 0 ? ` (${removeProfileConfirm.pricingCount} pricing entr${removeProfileConfirm.pricingCount !== 1 ? 'ies' : 'y'} will also be deleted)` : ''}.
+              </p>
+            )}
+            <div className="flex flex-col gap-2">
+              {removeProfileConfirm.matchingIds.length > 0 && (
+                <button
+                  onClick={() => doRemoveProfile(true)}
+                  className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl"
+                >
+                  Remove profile and service types
+                </button>
+              )}
+              <button
+                onClick={() => doRemoveProfile(false)}
+                className="w-full py-2 border border-stone-200 text-stone-700 text-sm font-medium rounded-xl hover:bg-stone-50"
+              >
+                Remove profile only
+              </button>
+              <button
+                onClick={() => setRemoveProfileConfirm(null)}
+                className="w-full py-2 text-stone-400 text-sm hover:text-stone-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
