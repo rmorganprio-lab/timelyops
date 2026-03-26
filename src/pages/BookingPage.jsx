@@ -2,6 +2,43 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+function renderInline(text) {
+  const parts = []
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*/g
+  let last = 0, m, k = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    if (m[1] != null) parts.push(<strong key={k++}>{m[1]}</strong>)
+    else parts.push(<em key={k++}>{m[2]}</em>)
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+function renderMarkdown(text) {
+  return text.split(/\n{2,}/).map((block, bi) => {
+    const lines = block.split('\n')
+    const bulletLines = lines.filter(l => l.trim())
+    if (bulletLines.length > 0 && bulletLines.every(l => /^[-•*]\s+/.test(l.trim()))) {
+      return (
+        <ul key={bi} className={`list-disc pl-4 space-y-0.5${bi > 0 ? ' mt-2' : ''}`}>
+          {bulletLines.map((item, ii) => (
+            <li key={ii}>{renderInline(item.replace(/^[-•*]\s+/, ''))}</li>
+          ))}
+        </ul>
+      )
+    }
+    return (
+      <p key={bi} className={bi > 0 ? 'mt-2' : ''}>
+        {lines.map((line, li) => (
+          <span key={li}>{li > 0 && <br />}{renderInline(line)}</span>
+        ))}
+      </p>
+    )
+  })
+}
+
 export default function BookingPage() {
   const { slug } = useParams()
   const [pageState, setPageState] = useState('loading') // loading | not_found | chat | confirmed
@@ -80,12 +117,7 @@ export default function BookingPage() {
         setConversationId(data.conversation_id)
       }
 
-      setMessages((prev) => {
-        const withUser = isInit
-          ? prev
-          : [...prev, { role: 'user', content: text }]
-        return [...withUser, { role: 'assistant', content: data.reply }]
-      })
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
 
       if (data.job_created) {
         // Give the customer a moment to read the final message, then show confirmation
@@ -209,7 +241,7 @@ export default function BookingPage() {
                   : 'bg-white text-stone-800 shadow-sm rounded-bl-sm'
               }`}
             >
-              {msg.content}
+              {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
             </div>
           </div>
         ))}

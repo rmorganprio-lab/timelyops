@@ -89,7 +89,7 @@ const TOOL_DEFINITIONS = [
         notes: { type: 'string', description: 'Additional notes from the customer' },
       },
       required: [
-        'first_name', 'phone', 'address', 'service_type_id', 'service_type_name',
+        'first_name', 'phone', 'service_type_id', 'service_type_name',
         'date', 'bedrooms', 'bathrooms', 'frequency', 'price',
       ],
     },
@@ -191,23 +191,33 @@ serve(async (req) => {
         ? `\nAlready collected:\n${JSON.stringify(conv.state, null, 2)}`
         : ''
 
+    const today = new Date().toISOString().slice(0, 10)
+
     const systemPrompt = `You are a friendly booking assistant for ${org.name}, a professional cleaning service. Help the customer book a cleaning appointment.
+
+Today's date is ${today}. Use this to resolve relative date references like "next Tuesday" or "this weekend" — convert them to YYYY-MM-DD before calling any tool.
 
 Available services:
 ${serviceList || '(use get_service_types to load services)'}
 ${stateDesc}
 
-Collect in this order (naturally, not as a checklist):
-1. Service type
-2. Bedrooms and bathrooms
-3. Cleaning frequency (one_time, weekly, biweekly, or monthly)
-4. Preferred date (and start time if they have one)
-5. Full service address
-6. Customer name and phone number (ask for area code)
+Your goal is to collect the following naturally through conversation:
+- Service type (e.g. standard clean, deep clean)
+- Home size: bedrooms and bathrooms
+- Frequency (one_time, weekly, biweekly, or monthly)
+- Preferred date — accept anything like "next Friday", "the 15th", "sometime next week"
+- Customer's first name and phone number
 
-Once you have everything, call get_pricing, share the quote, and ask for confirmation. Only call create_pending_job after the customer explicitly agrees to proceed.
+Do NOT ask for their address. It will be collected later when the team confirms.
 
-Be warm and concise. Ask for 1–2 things at a time. After create_pending_job succeeds, tell the customer their request is submitted and the team will confirm shortly.`
+Conversational rules:
+- Write in plain prose, never use bullet points or numbered lists in your responses
+- Pick up multiple pieces of info from a single message when the customer volunteers them — don't ask again for things they already said
+- Ask for at most 2 pieces of information at a time
+- Keep responses short and warm
+- When you have service type, size, and frequency, call get_pricing and share the quote
+- After the customer agrees to the price, ask for their name and phone number, then call create_pending_job
+- After create_pending_job succeeds, tell them their request is submitted and ${org.name} will confirm shortly`
 
     // ── Build initial Claude API messages from history ────────────
     const baseMessages: Array<{ role: string; content: unknown }> = history.map((m) => ({
@@ -290,11 +300,12 @@ Be warm and concise. Ask for 1–2 things at a time. After create_pending_job su
       // ── create_pending_job ──
       if (toolName === 'create_pending_job') {
         const {
-          first_name, last_name, phone, address,
+          first_name, last_name, phone,
           service_type_id, service_type_name,
           date, start_time,
           bedrooms, bathrooms, frequency, price, notes,
         } = input as Record<string, string | number>
+        const address = (input.address as string | undefined) ?? null
 
         // Create client record (lead status)
         const fullName = last_name ? `${first_name} ${last_name}` : String(first_name)
@@ -306,7 +317,7 @@ Be warm and concise. Ask for 1–2 things at a time. After create_pending_job su
             last_name: last_name ? String(last_name) : null,
             name: fullName,
             phone: String(phone),
-            address: String(address),
+            address: address ?? null,
             status: 'lead',
             notes: 'Created via AI booking agent',
           })
@@ -378,10 +389,10 @@ Be warm and concise. Ask for 1–2 things at a time. After create_pending_job su
             `${fullName} | ${phone}`,
             `${service_type_name}, ${bedrooms}bd/${bathrooms}ba, ${frequency}`,
             `Date: ${date}${start_time ? ' at ' + start_time : ''}`,
-            `Address: ${address}`,
+            address ? `Address: ${address}` : null,
             `Price: $${price}`,
             `Log in to TimelyOps to confirm.`,
-          ].join('\n')
+          ].filter(Boolean).join('\n')
 
           for (const owner of owners || []) {
             if (!owner.phone) continue
