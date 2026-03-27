@@ -10,6 +10,8 @@ import CSVImport from '../components/CSVImport'
 import { WORKER_TEMPLATE, validateWorkerRows, normalizePhone } from '../lib/csv'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import { useToast } from '../contexts/ToastContext'
+import { TIERS } from '../lib/tiers'
+import { useSubscription } from '../contexts/SubscriptionContext'
 
 export default function Workers({ user }) {
   const [workers, setWorkers] = useState([])
@@ -22,11 +24,17 @@ export default function Workers({ user }) {
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [showImport, setShowImport] = useState(false)
   const [errors, setErrors] = useState({})
+  const [staffLimitBanner, setStaffLimitBanner] = useState(false)
 
   const orgId = user?.org_id
   const { adminViewOrg } = useAdminOrg()
   const { showToast } = useToast()
   const effectiveOrgId = adminViewOrg?.id ?? user?.org_id
+  const { tier } = useSubscription()
+  const tierData = TIERS[tier] || TIERS.starter
+  const staffLimit = tierData.maxStaff
+  const tierName = tierData.name
+  const isAdminView = !!adminViewOrg
 
   useEffect(() => {
     loadWorkers()
@@ -49,7 +57,23 @@ export default function Workers({ user }) {
     setLoading(false)
   }
 
-  function openAdd() {
+  async function getStaffCount() {
+    const { count } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true })
+      .eq('org_id', effectiveOrgId)
+    return count ?? 0
+  }
+
+  async function openAdd() {
+    if (!isAdminView) {
+      const count = await getStaffCount()
+      if (count >= staffLimit) {
+        setStaffLimitBanner(true)
+        return
+      }
+    }
+    setStaffLimitBanner(false)
     setForm({
       name: '',
       phone: '',
@@ -189,6 +213,13 @@ export default function Workers({ user }) {
   }
 
   async function handleWorkerImport(rows) {
+    if (!isAdminView) {
+      const currentCount = await getStaffCount()
+      if (currentCount + rows.length > staffLimit) {
+        setStaffLimitBanner(true)
+        return { success: false, count: 0, skipped: 0 }
+      }
+    }
     let count = 0
     let skipped = 0
 
@@ -264,6 +295,19 @@ export default function Workers({ user }) {
           </button>
         </div>
       </div>
+
+      {/* Staff limit banner */}
+      {staffLimitBanner && (
+        <div className="mb-4 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <svg className="flex-shrink-0 mt-0.5 text-blue-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <p className="flex-1 text-sm text-blue-800">
+            Your <span className="font-semibold">{tierName}</span> plan includes {staffLimit} staff accounts. Upgrade to add more team members.
+          </p>
+          <button onClick={() => setStaffLimitBanner(false)} className="flex-shrink-0 text-blue-400 hover:text-blue-600">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      )}
 
       {/* Worker Grid */}
       {workers.length === 0 ? (
