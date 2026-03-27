@@ -1,7 +1,7 @@
 export const TIERS = {
   starter: {
     name: 'Starter',
-    price: 79,
+    price: 99,
     maxStaff: 5,
     features: [
       'dashboard',
@@ -18,7 +18,7 @@ export const TIERS = {
   },
   professional: {
     name: 'Professional',
-    price: 129,
+    price: 149,
     maxStaff: 10,
     features: [
       'reports_export',
