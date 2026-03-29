@@ -11,7 +11,13 @@ export function parseCSV(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
   if (lines.length < 2) return { headers: [], rows: [], errors: ['File is empty or has no data rows'] }
 
-  const headers = parseLine(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const headers = parseLine(lines[0]).map(h =>
+    h.trim()
+     .replace(/\s*\*\s*$/, '')      // strip trailing " *" added by XLSX template for required fields
+     .toLowerCase()
+     .replace(/[^a-z0-9]+/g, '_')   // replace any run of non-alphanumeric chars (spaces, /, etc.) with _
+     .replace(/^_+|_+$/g, '')       // trim leading/trailing underscores
+  )
   const rows = []
   const errors = []
 
