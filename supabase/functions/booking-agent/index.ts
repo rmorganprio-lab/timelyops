@@ -20,8 +20,8 @@ function hasFeature(
 ): boolean {
   const tierOrder = ['essentials', 'pro']
   const tierFeatures: Record<string, string[]> = {
-    essentials: ['dashboard', 'clients', 'workers', 'schedule', 'quotes', 'payments', 'invoices', 'reports_view', 'client_timeline', 'worker_checkin_time'],
-    pro: ['reports_export', 'automated_reminders', 'job_checklists', 'worker_gps_checkin', 'auto_review_requests'],
+    essentials: ['dashboard', 'clients', 'workers', 'schedule', 'quotes', 'payments', 'invoices', 'reports_view', 'client_timeline', 'worker_checkin_time', 'ai_inbound_agent'],
+    pro: ['reports_export', 'automated_reminders', 'job_checklists', 'worker_gps_checkin', 'auto_review_requests', 'route_planning'],
   }
   const orgTierIndex = tierOrder.indexOf(org.subscription_tier || 'essentials')
   for (let i = 0; i <= orgTierIndex; i++) {
@@ -127,7 +127,7 @@ serve(async (req) => {
       return json({ error: 'Organization not found' }, 404)
     }
 
-    if (!hasFeature(org, 'ai_lead_agents')) {
+    if (!hasFeature(org, 'ai_inbound_agent')) {
       return json({ error: 'Booking agent not available for this organization.' }, 403)
     }
 
