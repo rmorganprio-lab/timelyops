@@ -735,28 +735,56 @@
 
     /* ─── LANGUAGE SWITCHER ─────────────────────────────────── */
     .lang-switcher {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      font-size: 12px;
-      font-weight: 500;
+      position: relative;
       flex-shrink: 0;
     }
-    .lang-switcher button {
+    .lang-trigger {
+      display: flex;
+      align-items: center;
+      gap: 3px;
       background: none;
       border: none;
       cursor: pointer;
-      padding: 2px 4px;
-      border-radius: 4px;
-      color: var(--stone-400);
+      padding: 4px 8px;
+      border-radius: 8px;
+      color: var(--stone-500);
       font-size: 12px;
       font-weight: 500;
-      transition: color .15s;
       font-family: inherit;
+      transition: color .15s, background .15s;
     }
-    .lang-switcher button:hover { color: var(--stone-700); }
-    .lang-switcher button.active { color: var(--emerald-700); font-weight: 600; }
-    .lang-switcher .sep { color: var(--stone-200); line-height: 1; }
+    .lang-trigger:hover { color: var(--stone-700); background: var(--stone-100); }
+    .lang-trigger svg { flex-shrink: 0; transition: transform .15s; }
+    .lang-trigger.open svg { transform: rotate(180deg); }
+    .lang-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.08);
+      padding: 4px;
+      min-width: 110px;
+      z-index: 200;
+    }
+    .lang-dropdown.open { display: block; }
+    .lang-option {
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: inherit;
+      color: var(--stone-700);
+      transition: background .12s;
+    }
+    .lang-option:hover { background: var(--stone-100); }
+    .lang-option.active { color: var(--emerald-700); font-weight: 600; background: var(--emerald-50); }
   </style>
 </head>
 <body>
@@ -777,9 +805,16 @@
       <a href="#how-it-works">How It Works</a>
       <a href="#pricing">Pricing</a>
       <div class="lang-switcher" id="landingLangSwitcher">
-        <button id="langEn" onclick="setLang('en')">EN</button>
-        <span class="sep">|</span>
-        <button id="langEs" onclick="setLang('es')">ES</button>
+        <button class="lang-trigger" id="langTrigger" onclick="toggleLangDropdown()">
+          <span id="langLabel">EN</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="lang-dropdown" id="langDropdown">
+          <button class="lang-option" id="langOptEn" onclick="setLang('en')">English</button>
+          <button class="lang-option" id="langOptEs" onclick="setLang('es')">Español</button>
+        </div>
       </div>
       <a href="/login" class="btn-nav">Sign In</a>
     </div>
@@ -1110,15 +1145,52 @@
 </footer>
 
 <script>
+  var LANGS = [
+    { code: 'en', label: 'English' },
+    { code: 'es', label: 'Español' },
+  ]
+
   function setLang(lang) {
     localStorage.setItem('timelyops_language', lang)
-    document.getElementById('langEn').classList.toggle('active', lang === 'en')
-    document.getElementById('langEs').classList.toggle('active', lang === 'es')
+    var found = LANGS.find(function(l) { return l.code === lang }) || LANGS[0]
+    document.getElementById('langLabel').textContent = found.code.toUpperCase()
+    LANGS.forEach(function(l) {
+      document.getElementById('langOpt' + l.code.charAt(0).toUpperCase() + l.code.slice(1))
+        .classList.toggle('active', l.code === lang)
+    })
+    closeLangDropdown()
   }
-  // Initialise active state from localStorage on page load
+
+  function toggleLangDropdown() {
+    var dd = document.getElementById('langDropdown')
+    var trigger = document.getElementById('langTrigger')
+    var isOpen = dd.classList.contains('open')
+    if (isOpen) { closeLangDropdown() } else {
+      dd.classList.add('open')
+      trigger.classList.add('open')
+    }
+  }
+
+  function closeLangDropdown() {
+    document.getElementById('langDropdown').classList.remove('open')
+    document.getElementById('langTrigger').classList.remove('open')
+  }
+
+  // Close on outside click
+  document.addEventListener('mousedown', function(e) {
+    var sw = document.getElementById('landingLangSwitcher')
+    if (sw && !sw.contains(e.target)) closeLangDropdown()
+  })
+
+  // Initialise from localStorage on page load
   ;(function() {
     var lang = localStorage.getItem('timelyops_language') || 'en'
-    setLang(lang)
+    var found = LANGS.find(function(l) { return l.code === lang }) || LANGS[0]
+    document.getElementById('langLabel').textContent = found.code.toUpperCase()
+    LANGS.forEach(function(l) {
+      document.getElementById('langOpt' + l.code.charAt(0).toUpperCase() + l.code.slice(1))
+        .classList.toggle('active', l.code === lang)
+    })
   })()
 </script>
 </body>
