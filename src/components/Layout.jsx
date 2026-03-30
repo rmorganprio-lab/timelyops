@@ -1,31 +1,39 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAdminOrg } from '../contexts/AdminOrgContext'
 import LanguageSwitcher from './LanguageSwitcher'
 
-// Full nav for CEO and Manager
+// Nav items use translation keys resolved at render time
 const ownerNav = [
-  { to: '/', label: 'Dashboard', icon: 'dashboard' },
-  { to: '/clients', label: 'Clients', icon: 'clients' },
-  { to: '/workers', label: 'Workers', icon: 'workers' },
-  { to: '/schedule', label: 'Schedule', icon: 'schedule' },
-  { to: '/quotes', label: 'Quotes', icon: 'quotes' },
-  { to: '/invoices', label: 'Invoices', icon: 'invoices' },
-  { to: '/payments', label: 'Payments', icon: 'payments' },
-  { to: '/reports', label: 'Reports', icon: 'reports', roles: ['ceo', 'manager', 'support'] },
-  { to: '/settings', label: 'Settings', icon: 'settings', roles: ['ceo'] },
+  { to: '/',         labelKey: 'common.nav.dashboard', icon: 'dashboard' },
+  { to: '/clients',  labelKey: 'common.nav.clients',   icon: 'clients' },
+  { to: '/workers',  labelKey: 'common.nav.workers',   icon: 'workers' },
+  { to: '/schedule', labelKey: 'common.nav.schedule',  icon: 'schedule' },
+  { to: '/quotes',   labelKey: 'common.nav.quotes',    icon: 'quotes' },
+  { to: '/invoices', labelKey: 'common.nav.invoices',  icon: 'invoices' },
+  { to: '/payments', labelKey: 'common.nav.payments',  icon: 'payments' },
+  { to: '/reports',  labelKey: 'common.nav.reports',   icon: 'reports',  roles: ['ceo', 'manager', 'support'] },
+  { to: '/settings', labelKey: 'common.nav.settings',  icon: 'settings', roles: ['ceo'] },
 ]
 
-// Simplified nav for workers — only what they need
 const workerNav = [
-  { to: '/', label: 'My Jobs', icon: 'schedule' },
-  { to: '/clients', label: 'Clients', icon: 'clients' },
+  { to: '/',        labelKey: 'common.nav.my_jobs', icon: 'schedule' },
+  { to: '/clients', labelKey: 'common.nav.clients', icon: 'clients' },
+]
+
+const ADMIN_SUB_NAV = [
+  { to: '/admin',          labelKey: 'common.nav.admin_overview',       end: true  },
+  { to: '/admin/orgs',     labelKey: 'common.nav.admin_organizations',  end: false },
+  { to: '/admin/users',    labelKey: 'common.nav.admin_users',          end: false },
+  { to: '/admin/audit',    labelKey: 'common.nav.admin_audit',          end: false },
+  { to: '/admin/profiles', labelKey: 'common.nav.admin_profiles',       end: false },
 ]
 
 function NavIcon({ name, size = 20 }) {
   const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }
-  
+
   switch (name) {
     case 'dashboard': return <svg {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
     case 'clients': return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -41,16 +49,9 @@ function NavIcon({ name, size = 20 }) {
   }
 }
 
-const ADMIN_SUB_NAV = [
-  { to: '/admin',            label: 'Overview',       end: true  },
-  { to: '/admin/orgs',       label: 'Organizations',  end: false },
-  { to: '/admin/users',      label: 'Users',          end: false },
-  { to: '/admin/audit',      label: 'Audit Log',      end: false },
-  { to: '/admin/profiles',   label: 'Profiles',       end: false },
-]
-
 export default function Layout({ user }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { t } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
   const { adminViewOrg, exitAdminView, isAdminViewing } = useAdminOrg()
@@ -76,26 +77,28 @@ export default function Layout({ user }) {
     navigate('/admin/orgs')
   }
 
+  const roleLabel = t(`common.roles.${role}`, { defaultValue: role })
+
   return (
     <div className={`min-h-screen bg-stone-50 flex ${isAdminViewing ? 'pt-10' : ''}`}>
       {/* Admin org view banner */}
       {isAdminViewing && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-stone-800 text-white text-sm px-4 py-2 flex items-center justify-between">
           <span>
-            Admin viewing: <span className="font-semibold">{adminViewOrg.name}</span>
+            {t('common.header.admin_viewing')} <span className="font-semibold">{adminViewOrg.name}</span>
           </span>
           <button
             onClick={handleExitAdminView}
             className="text-stone-300 hover:text-white font-medium text-xs border border-stone-600 rounded-lg px-3 py-1 hover:border-stone-400 transition-colors"
           >
-            Exit
+            {t('common.header.admin_exit')}
           </button>
         </div>
       )}
 
       {/* Mobile menu overlay */}
       {mobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/30 z-40 md:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
@@ -137,13 +140,13 @@ export default function Layout({ user }) {
               onClick={() => setMobileMenuOpen(false)}
               className={({ isActive }) => `
                 flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
-                ${isActive 
-                  ? 'bg-emerald-50 text-emerald-700' 
+                ${isActive
+                  ? 'bg-emerald-50 text-emerald-700'
                   : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'}
               `}
             >
               <NavIcon name={item.icon} />
-              {item.label}
+              {t(item.labelKey)}
             </NavLink>
           ))}
         </nav>
@@ -164,7 +167,7 @@ export default function Layout({ user }) {
               `}
             >
               <NavIcon name="admin" />
-              Admin
+              {t('common.nav.admin')}
             </NavLink>
             {isAdminArea && (
               <div className="ml-3 pl-3 border-l border-stone-100 space-y-0.5">
@@ -181,7 +184,7 @@ export default function Layout({ user }) {
                         : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600'}
                     `}
                   >
-                    {item.label}
+                    {t(item.labelKey)}
                   </NavLink>
                 ))}
               </div>
@@ -194,12 +197,12 @@ export default function Layout({ user }) {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-medium text-stone-700">{user?.name}</div>
-              <div className="text-xs text-stone-400 capitalize">{role === 'ceo' ? 'Owner' : role}</div>
+              <div className="text-xs text-stone-400">{roleLabel}</div>
             </div>
             <button
               onClick={handleSignOut}
               className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
-              title="Sign out"
+              title={t('common.actions.sign_out_title')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -236,9 +239,9 @@ export default function Layout({ user }) {
         {/* Past-due banner — shown to non-admins only */}
         {user?.organizations?.subscription_status === 'past_due' && !user?.is_platform_admin && (
           <div className="bg-orange-50 border-b border-orange-200 px-4 py-2.5 text-sm text-orange-700 text-center">
-            Your payment is past due. Please contact{' '}
+            {t('common.header.past_due_before')}{' '}
             <a href="mailto:info@timelyops.com" className="font-semibold underline">info@timelyops.com</a>
-            {' '}to avoid service interruption.
+            {' '}{t('common.header.past_due_after')}
           </div>
         )}
 
