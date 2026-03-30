@@ -1,6 +1,21 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-03-29 (ai_inbound_agent added to Essentials; route_planning added to Pro; ai_lead_agents renamed to ai_outbound_agents)
+Last updated: 2026-03-30 (full i18n implemented — English + Spanish across all pages)
+
+---
+
+## Internationalisation (i18n)
+
+Fully implemented as of 2026-03-30.
+
+- **Library:** react-i18next. Init in `src/lib/i18n.js`.
+- **Languages:** English (`en`) and Spanish (`es`). Locale files: `src/locales/en.json` and `src/locales/es.json`.
+- **Coverage:** Every user-facing string in all pages, components, App.jsx, and landing.html is translated.
+- **Namespaces:** `login.*`, `common.*` (nav, actions, status, roles, toast, delivery, etc.), `dashboard.*`, `schedule.*`, `workers.*`, `clients.*`, `quotes.*`, `invoices.*`, `payments.*`, `reports.*`, `settings.*`, `csvimport.*`, `featuregate.*`, `app.*`, `terms.*`, `privacy.*`.
+- **Language persistence:** Stored in `localStorage('timelyops_language')`. Set at login by reading `org.settings.language`. Changing in Settings writes localStorage and calls `i18n.changeLanguage()`, then reloads the page.
+- **landing.html:** Plain JS system — `data-i18n="key"` / `data-i18n-html="key"` attributes on elements, `TRANSLATIONS` object, `applyLang(lang)` function called on load and on language switch. No React.
+- **PDF text:** `generatePDF()` in Invoices.jsx intentionally kept as hardcoded English — PDFs are fixed-layout client documents.
+- **Sub-components:** Each module-level sub-component calls its own `useTranslation()`. Inline sub-components (like `DeltaBadge` inside `MonthlyTab`) use the parent's `t` via closure.
 
 ---
 
@@ -16,7 +31,7 @@ Last updated: 2026-03-29 (ai_inbound_agent added to Essentials; route_planning a
 | `/invoices` | Invoices.jsx | ✅ Full | CRUD, line items, delivery modal, PDF generation, inline payment |
 | `/payments` | Payments.jsx | ✅ Full | Log payments, delivery modal, filter by method/client/period |
 | `/reports` | Reports.jsx | ✅ Full | Charts (Recharts), export modal (XLSX/CSV zip), feature-gated |
-| `/settings` | Settings.jsx | ✅ Full | Org name, timezone, time format (12h/24h), tax rate — ceo + platform_admin |
+| `/settings` | Settings.jsx | ✅ Full | Org name, timezone, time format (12h/24h), tax rate, language picker (en/es) — ceo + platform_admin |
 | `/login` | Login.jsx | ✅ Full | Phone OTP primary, email magic link fallback. Footer links to /terms and /privacy. |
 | `/approve/:token` | QuoteApproval.jsx | ✅ Full | Public, no auth; approve/decline with reason |
 | `/invoice/:token` | InvoiceView.jsx | ✅ Full | Public, no auth; shows invoice with line items |

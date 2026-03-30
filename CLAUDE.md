@@ -15,6 +15,7 @@ The product name in branding is **TimelyOps**. The GitHub repo and Supabase proj
 - **Charts:** Recharts
 - **PDF:** jsPDF
 - **Excel export:** XLSX (SheetJS)
+- **i18n:** react-i18next — `useTranslation()` hook, `t()` calls throughout; locale files at `src/locales/en.json` and `src/locales/es.json`
 
 Not yet integrated (planned): Claude API (Growth tier AI agents), Stripe (online payments), QuickBooks.
 
@@ -74,6 +75,10 @@ src/
     csv.js              — parse, validate, template, download
     timezone.js         — formatting, timezone math, US_TIMEZONES list
     auditLog.js         — logAudit() helper
+    i18n.js             — i18next init (reads localStorage language on startup)
+  locales/
+    en.json             — English strings
+    es.json             — Spanish strings
   contexts/
     SubscriptionContext.jsx
     ToastContext.jsx    — showToast(message, type?, action?)
@@ -98,6 +103,7 @@ public/
 - Admin scoping: `const { adminViewOrg } = useAdminOrg()` — all pages that touch data must implement this
 - Error handling on Supabase writes: always capture `{ error }` and show a toast, never silent fail
 - Use US English spelling throughout — code, comments, UI text, and documentation (e.g., "organization" not "organisation", "color" not "colour")
+- **i18n:** All user-facing strings use `t()` from `useTranslation()` (react-i18next). Add strings to `src/locales/en.json` and `src/locales/es.json` under a page/component namespace (e.g. `clients.*`, `reports.*`). Common strings live in `common.*`. Language persists via `localStorage('timelyops_language')` and is set on login. `landing.html` uses a plain JS `data-i18n` / `applyLang()` system (no React).
 
 ## Pricing tiers
 Defined in `src/lib/tiers.js`:
