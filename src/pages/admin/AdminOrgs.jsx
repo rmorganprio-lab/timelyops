@@ -372,14 +372,12 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, onDelete, adminUse
   const [stEditForm, setStEditForm]                   = useState({})
   const [stSaving, setStSaving]                       = useState(false)
 
-  // Industry profiles state
-  const [profilesOpen, setProfilesOpen]               = useState(false)
-  const [profilesLoaded, setProfilesLoaded]           = useState(false)
+  // Industry profile state (single-profile selector)
   const [availableProfiles, setAvailableProfiles]     = useState([])
-  const [appliedProfileIds, setAppliedProfileIds]     = useState([])
-  const [selectedProfileIds, setSelectedProfileIds]   = useState([])
+  const [profilesLoaded, setProfilesLoaded]           = useState(false)
+  const [currentProfileId, setCurrentProfileId]       = useState(null)
   const [profilesSaving, setProfilesSaving]           = useState(false)
-  const [removeProfileConfirm, setRemoveProfileConfirm] = useState(null)
+  const [profileConfirm, setProfileConfirm]           = useState(null) // profile id pending confirmation
 
   // Service types panel state (separate from pricing)
   const [stPanelOpen, setStPanelOpen]                 = useState(false)
@@ -401,7 +399,7 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, onDelete, adminUse
     }))
   }
 
-  useEffect(() => { fetchUsers(); fetchAudit() }, [org.id])
+  useEffect(() => { fetchUsers(); fetchAudit(); loadProfilesForOrg() }, [org.id])
 
   async function fetchAudit() {
     setAuditLoading(true)
@@ -487,74 +485,26 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, onDelete, adminUse
   async function loadProfilesForOrg() {
     const [{ data: allProfiles }, { data: applied }] = await Promise.all([
       supabase.from('industry_profiles').select('id, name, description').eq('is_active', true).order('sort_order'),
-      supabase.from('organization_profiles').select('profile_id').eq('org_id', org.id),
+      supabase.from('organization_profiles').select('profile_id').eq('org_id', org.id).limit(1),
     ])
-    const appliedIds = (applied || []).map(r => r.profile_id)
     setAvailableProfiles(allProfiles || [])
-    setAppliedProfileIds(appliedIds)
-    setSelectedProfileIds(appliedIds)
+    setCurrentProfileId(applied?.[0]?.profile_id ?? null)
     setProfilesLoaded(true)
   }
 
-  async function saveProfiles() {
-    if (selectedProfileIds.length === 0) return
+  async function applyProfile(profileId) {
     setProfilesSaving(true)
     try {
       const nameMap = Object.fromEntries(availableProfiles.map(p => [p.id, p.name]))
-      const result = await applyProfilesToOrg(org.id, selectedProfileIds, nameMap)
+      const result = await applyProfilesToOrg(org.id, [profileId], nameMap)
       showToast(buildApplyToast(result))
-      await loadProfilesForOrg()
+      setCurrentProfileId(profileId)
+      if (pricingLoaded) await loadPricingForOrg()
     } catch (err) {
       showToast(err.message, 'error')
     }
+    setProfileConfirm(null)
     setProfilesSaving(false)
-  }
-
-  async function reapplyProfiles() {
-    if (appliedProfileIds.length === 0) return
-    setProfilesSaving(true)
-    try {
-      const nameMap = Object.fromEntries(availableProfiles.map(p => [p.id, p.name]))
-      const result = await applyProfilesToOrg(org.id, appliedProfileIds, nameMap)
-      showToast(buildApplyToast(result))
-    } catch (err) {
-      showToast(err.message, 'error')
-    }
-    setProfilesSaving(false)
-  }
-
-  async function initiateRemoveProfile(profile) {
-    // Find org service types whose names match this profile's templates
-    const [{ data: psts }, { data: orgSTs }] = await Promise.all([
-      supabase.from('profile_service_types').select('name').eq('profile_id', profile.id),
-      supabase.from('service_types').select('id, name').eq('org_id', org.id),
-    ])
-    const templateNames = new Set((psts || []).map(s => s.name.toLowerCase()))
-    const matchingSTs = (orgSTs || []).filter(st => templateNames.has(st.name.toLowerCase()))
-    const matchingIds = matchingSTs.map(st => st.id)
-
-    let pricingCount = 0
-    if (matchingIds.length > 0) {
-      const { data: pmRows } = await supabase
-        .from('pricing_matrix')
-        .select('id')
-        .in('service_type_id', matchingIds)
-      pricingCount = pmRows?.length ?? 0
-    }
-
-    setRemoveProfileConfirm({ profileId: profile.id, profileName: profile.name, matchingIds, pricingCount })
-  }
-
-  async function doRemoveProfile(deleteServiceTypes) {
-    const { profileId, matchingIds } = removeProfileConfirm
-    await supabase.from('organization_profiles').delete().eq('org_id', org.id).eq('profile_id', profileId)
-    if (deleteServiceTypes && matchingIds.length > 0) {
-      await supabase.from('service_types').delete().in('id', matchingIds)
-    }
-    showToast(deleteServiceTypes ? 'Profile and service types removed' : 'Profile removed')
-    setRemoveProfileConfirm(null)
-    await loadProfilesForOrg()
-    if (pricingLoaded) await loadPricingForOrg()
   }
 
   function getPricingValue(stId, freq, beds, baths) {
@@ -862,90 +812,50 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, onDelete, adminUse
               </div>
             )}
           </section>
-          {/* Industry Profiles */}
+          {/* Industry Profile */}
           <section className="border-t border-stone-100 pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Industry Profiles</h3>
-              <button
-                onClick={() => {
-                  const next = !profilesOpen
-                  setProfilesOpen(next)
-                  if (next && !profilesLoaded) loadProfilesForOrg()
-                }}
-                className="text-xs text-emerald-700 font-medium hover:underline"
-              >
-                {profilesOpen ? 'Collapse' : 'Manage'}
-              </button>
-            </div>
-
-            {profilesOpen && (
-              <div>
-                {appliedProfileIds.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-xs text-stone-400 mb-1.5">Applied (click × to remove):</p>
-                    <div className="flex flex-wrap gap-1">
-                      {availableProfiles
-                        .filter(p => appliedProfileIds.includes(p.id))
-                        .map(p => (
-                          <span key={p.id} className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
-                            {p.name}
-                            <button
-                              onClick={() => initiateRemoveProfile(p)}
-                              className="ml-0.5 w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-emerald-200 text-emerald-500 hover:text-emerald-800"
-                              title="Remove this profile"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {availableProfiles.length === 0 ? (
-                  <p className="text-xs text-stone-400">No active industry profiles. Create them at <span className="font-mono">/admin/profiles</span>.</p>
-                ) : (
-                  <>
-                    <p className="text-xs text-stone-400 mb-2">Select profiles to apply service types to this org:</p>
-                    <div className="space-y-1.5 mb-3">
-                      {availableProfiles.map(p => (
-                        <label key={p.id} className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedProfileIds.includes(p.id)}
-                            onChange={() => setSelectedProfileIds(prev =>
-                              prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
-                            )}
-                            className="w-3.5 h-3.5 mt-0.5 rounded accent-emerald-700 flex-shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <span className="text-xs font-medium text-stone-700">{p.name}</span>
-                            {p.description && <span className="text-[10px] text-stone-400 ml-1">{p.description}</span>}
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={saveProfiles}
-                        disabled={profilesSaving || selectedProfileIds.length === 0}
-                        className="flex-1 py-2 bg-emerald-700 text-white text-xs font-medium rounded-xl hover:bg-emerald-800 disabled:opacity-50"
-                      >
-                        {profilesSaving ? 'Applying…' : 'Apply Selected'}
-                      </button>
-                      {appliedProfileIds.length > 0 && (
-                        <button
-                          onClick={reapplyProfiles}
-                          disabled={profilesSaving}
-                          className="flex-1 py-2 border border-stone-200 text-stone-600 text-xs font-medium rounded-xl hover:bg-stone-50 disabled:opacity-50"
-                          title="Re-adds any service types from applied profiles that don't exist yet. Won't overwrite customizations."
-                        >
-                          Reapply
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
+            <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-3">Industry Profile</h3>
+            {!profilesLoaded ? (
+              <p className="text-xs text-stone-400">Loading…</p>
+            ) : availableProfiles.length === 0 ? (
+              <p className="text-xs text-stone-400">No active profiles. Create them at <span className="font-mono">/admin/profiles</span>.</p>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-stone-400">Current:</span>
+                  {currentProfileId ? (
+                    <span className="font-medium text-emerald-700">
+                      {availableProfiles.find(p => p.id === currentProfileId)?.name ?? 'Unknown profile'}
+                    </span>
+                  ) : (
+                    <span className="text-stone-400 italic">No profile assigned</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <select
+                    defaultValue=""
+                    onChange={e => {
+                      const id = e.target.value
+                      if (!id) return
+                      if (currentProfileId && currentProfileId !== id) {
+                        setProfileConfirm(id)
+                      } else {
+                        applyProfile(id)
+                      }
+                      e.target.value = ''
+                    }}
+                    className="flex-1 px-2 py-1.5 border border-stone-200 rounded-lg text-xs text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    disabled={profilesSaving}
+                  >
+                    <option value="">Apply a profile…</option>
+                    {availableProfiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[10px] text-stone-400">
+                  Applying a profile copies its service types to this org. Existing service types are never deleted.
+                </p>
               </div>
             )}
           </section>
@@ -1195,43 +1105,14 @@ function OrgDetailPanel({ org, onClose, onUpdated, onViewOrg, onDelete, adminUse
         />
       )}
 
-      {removeProfileConfirm && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h3 className="font-bold text-stone-900 mb-2">Remove profile</h3>
-            <p className="text-stone-500 text-sm mb-1">
-              Remove <span className="font-medium text-stone-700">{removeProfileConfirm.profileName}</span> from this org?
-            </p>
-            {removeProfileConfirm.matchingIds.length > 0 && (
-              <p className="text-stone-400 text-xs mb-4">
-                {removeProfileConfirm.matchingIds.length} matching service type{removeProfileConfirm.matchingIds.length !== 1 ? 's' : ''} found
-                {removeProfileConfirm.pricingCount > 0 ? ` (${removeProfileConfirm.pricingCount} pricing entr${removeProfileConfirm.pricingCount !== 1 ? 'ies' : 'y'} will also be deleted)` : ''}.
-              </p>
-            )}
-            <div className="flex flex-col gap-2">
-              {removeProfileConfirm.matchingIds.length > 0 && (
-                <button
-                  onClick={() => doRemoveProfile(true)}
-                  className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl"
-                >
-                  Remove profile and service types
-                </button>
-              )}
-              <button
-                onClick={() => doRemoveProfile(false)}
-                className="w-full py-2 border border-stone-200 text-stone-700 text-sm font-medium rounded-xl hover:bg-stone-50"
-              >
-                Remove profile only
-              </button>
-              <button
-                onClick={() => setRemoveProfileConfirm(null)}
-                className="w-full py-2 text-stone-400 text-sm hover:text-stone-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+      {profileConfirm && (
+        <ConfirmModal
+          title="Change industry profile?"
+          message={`This org already has "${availableProfiles.find(p => p.id === currentProfileId)?.name}" applied. Changing to "${availableProfiles.find(p => p.id === profileConfirm)?.name}" will add its service types. Existing service types will not be deleted. Continue?`}
+          danger={false}
+          onConfirm={() => applyProfile(profileConfirm)}
+          onCancel={() => setProfileConfirm(null)}
+        />
       )}
     </>
   )
