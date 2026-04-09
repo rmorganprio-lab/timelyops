@@ -89,6 +89,7 @@ src/
     formatAddress.js    — formatName(), formatAddress(), formatAddressLines()
     formatCurrency.js   — formatCurrency(amount, symbol)
     industryProfiles.js — applyProfilesToOrg(), buildApplyToast()
+    financialActions.js — voidQuote(), voidInvoice(), createCreditNote(), reversePayment() — irreversible financial ops with audit logging; used by Quotes.jsx, Invoices.jsx, Payments.jsx
   locales/
     en.json             — English strings
     es.json             — Spanish strings
@@ -101,6 +102,7 @@ supabase/functions/
   send-sms/             — Twilio SMS
   quote-action/         — public token actions + get_receipt
   admin-update-auth-user/ — update Supabase auth credentials
+  booking-agent/        — public AI booking agent (no JWT), uses claude-sonnet-4-20250514, 4 tools
 public/
   landing.html          — static landing page
   favicon.ico + PNGs    — favicons (committed to git)
@@ -138,6 +140,19 @@ Defined in `src/lib/tiers.js`:
 - If something is ambiguous, ask one focused question rather than 
   listing five options
 - Be direct and skip encouragement — get to the point
+
+## Security hardening (verified April 2026)
+All items below are confirmed in the live codebase and live Supabase DB:
+- **send-email / send-sms**: JWT auth required (manual `auth.getUser()` check — deployed `--no-verify-jwt`); org ownership enforced before any send
+- **send-email**: 60-second cooldown per recipient + type (checks `email_log`)
+- **send-sms**: 5/hour rate limit per phone number (checks `email_log` with `channel = 'sms'`)
+- **quote-action**: explicit SELECT field lists strip client email, phone, internal IDs from all public responses; `valid_until` expiry enforced with HTTP 410
+- **escapeHtml()**: defined and used on all user-supplied values in both `send-email` and `quote-action` HTML templates
+- **users UPDATE RLS**: `WITH CHECK` enforces `role`, `org_id`, and `is_platform_admin` cannot change (self-update only)
+- **clients DELETE RLS**: restricted to `ceo` + `manager` roles (+ platform admin); workers blocked
+- **quotes DELETE**: hard-delete is blocked entirely (policy dropped in `audit_controls_schema` migration; void/reverse instead)
+- **ErrorBoundary**: wraps every route individually and the entire app in `App.jsx`
+- **Session expiry**: detected via `onAuthStateChange`; redirects to `/login?expired=1` if not an intentional sign-out
 
 ## Keeping documentation current
 After completing any task that adds, removes, or changes a feature, 
