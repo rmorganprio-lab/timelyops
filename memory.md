@@ -1,6 +1,6 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-04-09 (security hardening verified; landing page Grand Slam Offer; booking page redesigned; 30-day guarantee added)
+Last updated: 2026-04-12 (replaced email invite with SMS onboarding; fixed phone auth linking via link-auth-user Edge Function)
 
 ---
 
@@ -177,9 +177,16 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 **Stores:** Conversation in `booking_conversations` table. Created jobs have `source = 'web_booking'`, `status = 'pending_confirmation'`.
 **Env vars:** `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 
-### `admin-update-auth-user` (v1 — new)
+### `admin-update-auth-user` (v1)
 **What:** Updates email/phone in `auth.users` using service role. Called from AdminUsers.jsx when a user's credentials change.
 **Security:** Server-side `is_platform_admin` check — frontend cannot bypass. Validates email format (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) and phone format (E.164). Logs change to `audit_log`.
+**Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+
+### `link-auth-user` (v1 — new 2026-04-12)
+**What:** Handles first-time phone OTP login. Accepts `{ phone }`. Finds the `users` row by phone where `auth_linked = false`, then updates its `id` to `auth.uid()` (from JWT) and sets `auth_linked = true`. Uses service role to bypass RLS — necessary because the existing row has a placeholder UUID as its `id`, not `auth.uid()`, so a frontend UPDATE would silently fail (RLS `USING (id = auth.uid())` filters it out).
+**Called from:** `App.jsx` `loadUser()` — on first login when user row is not found by id, or when row is found but `auth_linked = false`.
+**Security:** JWT auth required (manual `auth.getUser()` check). Returns 404 if no unlinked row matches the phone.
+**Replaces:** The old `invite-user` function (deleted) and the broken direct-update approach in App.jsx.
 **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 
 ---
@@ -298,6 +305,14 @@ Nav `#features` link replaced with `#value` to match new section id.
 - **No automated reminders** — Professional tier feature. `needs_assignment_reminder` flag is stored on jobs but notification system not built. TODO comment in Schedule.jsx `handleSave`.
 - **No online payments** — Invoice view page shows balance but has no Stripe integration. Outstanding invoices require manual payment recording.
 
+## Worker onboarding flow (updated 2026-04-12)
+
+Workers are created via Workers.jsx or AdminUsers.jsx with `auth_linked: false` and `id = crypto.randomUUID()`. On creation, if a phone number is present, the `send-sms` Edge Function is called with: *"You've been added to [Org Name] on TimelyOps. Log in at timelyops.com — enter your phone number to get started."* SMS failure shows a warning toast but does not block the save.
+
+On first phone OTP login, `App.jsx` `loadUser()` fails to find the row by `id = auth.uid()` (because the row still has a placeholder UUID). It then calls `link-auth-user` with `{ phone }`, which uses the service role to update the row's `id` to `auth.uid()` and sets `auth_linked = true`. The profile is then re-fetched and the user is set normally.
+
+---
+
 ## Security posture (all 12 items verified live — 2026-04-09)
 
 All items below confirmed in live codebase and live Supabase DB via pg_policies query.
@@ -309,7 +324,7 @@ All items below confirmed in live codebase and live Supabase DB via pg_policies 
 - **HTML escaping:** `escapeHtml()` applied to all user data in email templates (send-email, quote-action). ✓
 - **Org ownership:** send-email verifies the requesting user's org_id matches the record's org_id before sending. ✓
 - **Rate limiting:** send-email: 60s cooldown per recipient+type (checks email_log). send-sms: 5/hour per number (checks email_log, channel='sms'). ✓
-- **Edge Function auth:** send-email, send-sms, admin-update-auth-user all require valid JWT (manual auth.getUser() — deployed --no-verify-jwt). quote-action is intentionally public (token-based). ✓
+- **Edge Function auth:** send-email, send-sms, admin-update-auth-user, link-auth-user all require valid JWT (manual auth.getUser() — deployed --no-verify-jwt). quote-action and booking-agent are intentionally public. ✓
 - **RLS — users UPDATE:** Policy `"Users can update their own profile"` has WITH CHECK enforcing role, org_id, and is_platform_admin must equal current DB values. Self-escalation impossible. ✓
 - **RLS — clients DELETE:** Policy `"Managers can delete clients"` — restricted to user_role() = ANY ('ceo','manager') within same org (+ platform admin). Workers blocked. ✓
 - **RLS — quotes DELETE:** Hard-delete blocked entirely — policy dropped in audit_controls_schema migration. Void/reverse only. ✓
