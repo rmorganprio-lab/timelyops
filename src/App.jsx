@@ -121,7 +121,7 @@ function App() {
       if (session) {
         setSession(session)
         sessionLoadedRef.current = true
-        loadUser(session.user.id)
+        loadUser(session.user.id, session)
       } else {
         resolveLoading()
       }
@@ -137,7 +137,7 @@ function App() {
         setSession(session)
         if (session) {
           sessionLoadedRef.current = true
-          loadUser(session.user.id)
+          loadUser(session.user.id, session)
         } else {
           // Check if this is an intentional sign-out or an expired session
           const intentional = sessionStorage.getItem('intentional_signout')
@@ -163,9 +163,12 @@ function App() {
     }
   }, [])
 
-  async function loadUser(authId) {
+  async function loadUser(authId, session) {
     if (loadingUserRef.current === authId) return
     loadingUserRef.current = authId
+
+    const token = session?.access_token
+    const phone = session?.user?.phone
 
     try {
       const { data, error } = await supabase
@@ -175,29 +178,26 @@ function App() {
         .single()
 
       if (!error && data) {
-        if (!data.auth_linked) {
+        if (!data.auth_linked && phone) {
           // Row found by auth id but auth_linked flag not set — call Edge Function to finalize
-          const { data: { session: currentSession } } = await supabase.auth.getSession()
-          if (currentSession?.user?.phone) {
-            await fetch('https://vrssqhzzdhlqnptengju.supabase.co/functions/v1/link-auth-user', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentSession.access_token}`,
-              },
-              body: JSON.stringify({ phone: currentSession.user.phone }),
-            })
-            const { data: refreshed } = await supabase
-              .from('users')
-              .select('*, organizations(*)')
-              .eq('id', authId)
-              .single()
-            if (refreshed) {
-              i18n.changeLanguage(refreshed.organizations?.settings?.language || 'en')
-              setUser(refreshed)
-              resolveLoading()
-              return
-            }
+          await fetch('https://vrssqhzzdhlqnptengju.supabase.co/functions/v1/link-auth-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ phone }),
+          })
+          const { data: refreshed } = await supabase
+            .from('users')
+            .select('*, organizations(*)')
+            .eq('id', authId)
+            .single()
+          if (refreshed) {
+            i18n.changeLanguage(refreshed.organizations?.settings?.language || 'en')
+            setUser(refreshed)
+            resolveLoading()
+            return
           }
         }
         i18n.changeLanguage(data.organizations?.settings?.language || 'en')
@@ -207,16 +207,13 @@ function App() {
       }
 
       // User row not found by auth id — first-time phone OTP login
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      const phone = currentSession?.user?.phone
-
       if (!phone) throw new Error('No phone on auth user, cannot link')
 
       const linkRes = await fetch('https://vrssqhzzdhlqnptengju.supabase.co/functions/v1/link-auth-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentSession.access_token}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ phone }),
       })
