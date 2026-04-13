@@ -55,8 +55,70 @@ serve(async (req) => {
     }
 
     const body = await req.json()
-    const { auth_user_id, email, phone } = body
+    const { create_user, user_id, auth_user_id, email, phone } = body
 
+    // ── Branch: create a new auth user and link the public.users row ──
+    if (create_user) {
+      if (!user_id || !phone) {
+        return new Response(JSON.stringify({ error: 'create_user requires user_id and phone' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+        return new Response(JSON.stringify({ error: 'Invalid phone format. Use E.164 (e.g. +12125551234)' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      const { data: newAuthUser, error: createError } = await adminClient.auth.admin.createUser({
+        phone,
+        phone_confirm: true,
+      })
+
+      if (createError) {
+        return new Response(JSON.stringify({ error: createError.message }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Update public.users: set id to the real auth UUID and mark linked
+      const { error: updateError } = await adminClient
+        .from('users')
+        .update({ id: newAuthUser.user.id, auth_linked: true })
+        .eq('id', user_id)
+
+      if (updateError) {
+        // Auth user was created — clean it up to avoid orphan, then fail
+        await adminClient.auth.admin.deleteUser(newAuthUser.user.id)
+        return new Response(JSON.stringify({ error: 'Failed to link public.users row: ' + updateError.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      await adminClient.from('audit_log').insert({
+        org_id: null,
+        user_id: authUser.id,
+        user_name: callerUser.name || 'Platform Admin',
+        user_role: callerUser.role || 'admin',
+        is_admin_action: true,
+        action: 'create',
+        entity_type: 'auth_user',
+        entity_id: newAuthUser.user.id,
+        changes: { phone, public_user_id: user_id },
+        metadata: { source: 'admin_panel', performed_by: authUser.id },
+      })
+
+      return new Response(JSON.stringify({ success: true, auth_user_id: newAuthUser.user.id }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // ── Branch: update an existing auth user ──
     if (!auth_user_id) {
       return new Response(JSON.stringify({ error: 'Missing required field: auth_user_id' }), {
         status: 400,

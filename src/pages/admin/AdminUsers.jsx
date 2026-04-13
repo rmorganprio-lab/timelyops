@@ -50,31 +50,62 @@ function CreateUserModal({ onClose, onCreated, adminUser }) {
     e.preventDefault()
     setLoading(true)
 
+    // Normalize phone to E.164
+    const rawPhone = form.phone.trim()
+    let phone = null
+    if (rawPhone) {
+      if (rawPhone.startsWith('+')) {
+        phone = rawPhone
+      } else {
+        const digits = rawPhone.replace(/\D/g, '')
+        if (digits.length === 10) phone = '+1' + digits
+        else if (digits.length === 11 && digits.startsWith('1')) phone = '+' + digits
+        else phone = rawPhone
+      }
+    }
+
     const userId = crypto.randomUUID()
 
     const { error } = await supabase.from('users').insert({
       id:          userId,
       name:        form.name.trim(),
       email:       form.email.trim().toLowerCase() || null,
-      phone:       form.phone.trim() || null,
+      phone,
       role:        form.role,
       org_id:      form.orgId || null,
       auth_linked: false,
     })
     if (error) { showToast(error.message, 'error'); setLoading(false); return }
 
-    if (form.phone.trim()) {
-      const { data: orgData } = form.orgId
-        ? await supabase.from('organizations').select('name').eq('id', form.orgId).single()
-        : { data: null }
-      const orgName = orgData?.name || 'your team'
-      const { error: smsError } = await supabase.functions.invoke('send-sms', {
-        body: {
-          to: form.phone.trim(),
-          message: `You've been added to ${orgName} on TimelyOps. Log in at timelyops.com — enter your phone number to get started.`,
+    if (phone) {
+      // Create auth user so they can log in immediately via phone OTP
+      const { data: { session } } = await supabase.auth.getSession()
+      const createRes = await fetch('https://vrssqhzzdhlqnptengju.supabase.co/functions/v1/admin-update-auth-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({ create_user: true, user_id: userId, phone }),
       })
-      showToast(smsError ? 'User created — couldn\'t send login text, send manually' : 'User created — login instructions sent by text')
+
+      if (!createRes.ok) {
+        // Row exists but auth not set up — still usable but warn
+        showToast('User created — auth setup failed, they may need manual linking', 'warning')
+      } else {
+        // Send login SMS
+        const { data: orgData } = form.orgId
+          ? await supabase.from('organizations').select('name').eq('id', form.orgId).single()
+          : { data: null }
+        const orgName = orgData?.name || 'your team'
+        const { error: smsError } = await supabase.functions.invoke('send-sms', {
+          body: {
+            to: phone,
+            message: `You've been added to ${orgName} on TimelyOps. Log in at timelyops.com — enter your phone number to get started.`,
+          },
+        })
+        showToast(smsError ? 'User created — couldn\'t send login text, send manually' : 'User created — login instructions sent by text')
+      }
     } else {
       showToast('User created')
     }
