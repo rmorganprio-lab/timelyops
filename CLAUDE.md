@@ -152,8 +152,10 @@ All items below are confirmed in the live codebase and live Supabase DB:
 - **quote-action**: explicit SELECT field lists strip client email, phone, internal IDs from all public responses; `valid_until` expiry enforced with HTTP 410
 - **escapeHtml()**: defined and used on all user-supplied values in both `send-email` and `quote-action` HTML templates
 - **users UPDATE RLS**: `WITH CHECK` enforces `role`, `org_id`, and `is_platform_admin` cannot change (self-update only)
+- **users INSERT RLS**: `WITH CHECK` enforces `org_id = user_org_id()`, `is_platform_admin = false`, and `role IN ('worker', 'manager')` — prevents privilege escalation on insert (migration `20260413_fix_users_insert_policy.sql`)
 - **clients DELETE RLS**: restricted to `ceo` + `manager` roles (+ platform admin); workers blocked
 - **quotes DELETE**: hard-delete is blocked entirely (policy dropped in `audit_controls_schema` migration; void/reverse instead)
+- **DB function search_path**: all 12 public functions have `SET search_path = public` — prevents search path injection (migration `20260413_fix_function_search_paths.sql`)
 - **ErrorBoundary**: wraps every route individually and the entire app in `App.jsx`
 - **Session expiry**: detected via `onAuthStateChange`; redirects to `/login?expired=1` if not an intentional sign-out
 

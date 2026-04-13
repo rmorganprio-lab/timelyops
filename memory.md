@@ -1,6 +1,6 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-04-13 (landing page testimonial updated — Sunnyvale, California owner quote; footer "The Netherlands" removed)
+Last updated: 2026-04-13 (security hardening: DB function search_path fix + users INSERT RLS tightened)
 
 ---
 
@@ -334,7 +334,7 @@ On first phone OTP login, `App.jsx` `loadUser()` fails to find the row by `id = 
 
 ---
 
-## Security posture (all 12 items verified live — 2026-04-09)
+## Security posture (all 15 items verified live — 2026-04-13)
 
 All items below confirmed in live codebase and live Supabase DB via pg_policies query.
 
@@ -347,8 +347,10 @@ All items below confirmed in live codebase and live Supabase DB via pg_policies 
 - **Rate limiting:** send-email: 60s cooldown per recipient+type (checks email_log). send-sms: 5/hour per number (checks email_log, channel='sms'). ✓
 - **Edge Function auth:** send-email, send-sms, admin-update-auth-user, link-auth-user all require valid JWT (manual auth.getUser() — deployed --no-verify-jwt). quote-action and booking-agent are intentionally public. ✓
 - **RLS — users UPDATE:** Policy `"Users can update their own profile"` has WITH CHECK enforcing role, org_id, and is_platform_admin must equal current DB values. Self-escalation impossible. ✓
+- **RLS — users INSERT:** Policy `"Org members can insert users"` WITH CHECK enforces `org_id = user_org_id()`, `is_platform_admin = false`, `role IN ('worker','manager')`. Prevents privilege escalation on insert. Migration: `20260413_fix_users_insert_policy.sql`. ✓
 - **RLS — clients DELETE:** Policy `"Managers can delete clients"` — restricted to user_role() = ANY ('ceo','manager') within same org (+ platform admin). Workers blocked. ✓
 - **RLS — quotes DELETE:** Hard-delete blocked entirely — policy dropped in audit_controls_schema migration. Void/reverse only. ✓
+- **DB function search_path:** All 12 public functions have `SET search_path = public` — prevents search path injection attacks. Migration: `20260413_fix_function_search_paths.sql`. ✓
 - **ErrorBoundary:** Wraps every individual route and the entire app in App.jsx. ✓
 - **Session expiry:** onAuthStateChange detects unintentional drop; window.location.replace('/login?expired=1'). ✓
 
