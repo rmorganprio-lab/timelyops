@@ -106,9 +106,10 @@ supabase/functions/
   link-auth-user/       — first-time phone OTP login: updates users.id to auth.uid() and sets auth_linked = true (service role, JWT required)
   booking-agent/        — public AI booking agent (no JWT), uses claude-sonnet-4-20250514, 4 tools; responds in customer's language automatically
 public/
-  landing.html          — static landing page
+  landing.html          — static landing page (Vercel Analytics script included via /_vercel/insights/script.js)
   favicon.ico + PNGs    — favicons (committed to git)
   site.webmanifest
+vercel.json             — routing: / → landing.html; filesystem passthrough for static assets; /* → index.html (React app)
 ```
 
 ## Coding conventions

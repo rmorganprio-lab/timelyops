@@ -1,6 +1,6 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-04-13 (added Vercel Analytics; fixed link-auth-user session race condition in App.jsx)
+Last updated: 2026-04-13 (added Vercel Analytics to app + landing.html; fixed link-auth-user session race condition; vercel.json routes / to landing.html)
 
 ---
 
@@ -198,7 +198,7 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 | Supabase | DB, Auth, RLS, Edge Functions | `src/lib/supabase.js` (anon key), Edge Function env vars (service role) |
 | Resend | Transactional email | `RESEND_API_KEY` in Supabase Edge Function settings. Confirmed working in production — 5 emails delivered as of April 2026. |
 | Twilio | SMS delivery | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` in Supabase Edge Function settings |
-| Vercel | Hosting + CI/CD + Analytics | Auto-deploy on push to `main`. Analytics active — `<Analytics />` in App.jsx via `@vercel/analytics/react` |
+| Vercel | Hosting + CI/CD + Analytics | Auto-deploy on push to `main`. Analytics active — `<Analytics />` in App.jsx (`@vercel/analytics/react`) + `/_vercel/insights/script.js` in landing.html. Routing: `vercel.json` sends `/` to `landing.html`; all other paths fall through to React app (`index.html`). |
 | GitHub | Source control | `rmorganprio-lab/allbookd` |
 
 ---
