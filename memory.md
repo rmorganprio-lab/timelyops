@@ -1,6 +1,6 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-04-13 (added Vercel Analytics; fixed auth linking race condition; vercel.json landing page routing; admin create-user now provisions auth.users immediately)
+Last updated: 2026-04-13 (landing page redesigned — value stack, comparison table, live founding-spots counter; founding-spots Edge Function not yet built)
 
 ---
 
@@ -191,6 +191,22 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 **Security:** JWT auth required (manual `auth.getUser()` check). Returns 404 if no unlinked row matches the phone.
 **Replaces:** The old `invite-user` function (deleted) and the broken direct-update approach in App.jsx.
 **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+
+### `founding-spots` (NOT YET BUILT — needed for landing page)
+**What:** Public endpoint (no JWT) called by `landing.html` on every page load. Should return `{ remaining: N, total: 10 }` based on the live count of founding customers in the DB. Landing page shows "8 of 10" as a fallback while the fetch is in flight, and silently ignores failures.
+**How to determine count:** Query `organizations` where `is_founding_customer = true` (or a dedicated config table/env var). `total` is always 10.
+**Auth:** None — fully public. No sensitive data returned.
+**Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+
+---
+
+## Landing page notes (public/landing.html)
+- Fully static HTML — no React, no build step
+- Sections: announcement banner → nav → hero → value stack (animated) → stats → problem → how it works → comparison table → pricing → testimonial → final CTA → footer
+- **Value stack:** 9 rows animate in on scroll; running total counts up to $458/mo; price reveal card fades in after; savings calculated as $458 − $99 = $359/mo ($4,308/yr)
+- **Founding spots counter:** Fetches live from `founding-spots` Edge Function; falls back to "8 of 10" if fetch fails or function not deployed
+- **Vercel Analytics:** Loaded via `/_vercel/insights/script.js` script tag (same as React app uses `@vercel/analytics/react`)
+- **Banner dismiss:** Persisted in `localStorage('timelyops_banner_dismissed')`
 
 ---
 
