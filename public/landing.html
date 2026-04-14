@@ -90,9 +90,33 @@
       background: var(--teal); color: white; padding: 9px 20px; border-radius: 8px;
       font-size: 14px; font-weight: 600; text-decoration: none; transition: background .2s;
     }
-    .nav-cta:hover { background: var(--teal-dark); }
+    .nav-cta:hover { background: var(--teal-dark); color: white; }
+    .nav-login {
+      border: 1.5px solid var(--border); color: var(--text-muted) !important;
+      padding: 8px 18px; border-radius: 8px;
+      transition: border-color .2s, color .2s !important;
+    }
+    .nav-login:hover { border-color: var(--teal); color: var(--teal) !important; }
+    .nav-hamburger {
+      display: none; background: none; border: none; cursor: pointer;
+      padding: 4px; color: var(--text);
+    }
+    .mobile-menu {
+      display: none; flex-direction: column;
+      background: white; border-bottom: 1px solid var(--border);
+    }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu a {
+      padding: 14px 24px; color: var(--text-muted); text-decoration: none;
+      font-size: 15px; font-weight: 500; border-top: 1px solid var(--border);
+      transition: background .15s, color .15s;
+    }
+    .mobile-menu a:hover { color: var(--teal); background: var(--teal-light); }
+    .mobile-menu .mobile-login { color: var(--text); font-weight: 600; }
+    .mobile-menu .mobile-cta { color: var(--teal); font-weight: 600; }
     @media (max-width: 640px) {
       .nav-links { display: none; }
+      .nav-hamburger { display: flex; align-items: center; }
     }
 
     /* ─── HERO ─── */
@@ -453,8 +477,23 @@
       <a href="#value">Pricing</a>
       <a href="#how">How it works</a>
       <a href="#compare">Compare</a>
+      <a href="/login" class="nav-login">Log in</a>
       <a href="mailto:info@timelyops.com" class="nav-cta">Get started →</a>
     </div>
+    <button class="nav-hamburger" onclick="toggleMobileMenu()" aria-label="Open menu" aria-expanded="false" id="hamburger">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="2" y1="5" x2="20" y2="5"/>
+        <line x1="2" y1="11" x2="20" y2="11"/>
+        <line x1="2" y1="17" x2="20" y2="17"/>
+      </svg>
+    </button>
+  </div>
+  <div class="mobile-menu" id="mobile-menu">
+    <a href="#value" onclick="closeMobileMenu()">Pricing</a>
+    <a href="#how" onclick="closeMobileMenu()">How it works</a>
+    <a href="#compare" onclick="closeMobileMenu()">Compare</a>
+    <a href="/login" class="mobile-login">Log in</a>
+    <a href="mailto:info@timelyops.com" class="mobile-cta">Get started →</a>
   </div>
 </nav>
 
@@ -866,6 +905,18 @@
 </footer>
 
 <script>
+  function toggleMobileMenu() {
+    const menu = document.getElementById('mobile-menu');
+    const btn = document.getElementById('hamburger');
+    const isOpen = menu.classList.toggle('open');
+    btn.setAttribute('aria-expanded', isOpen);
+  }
+
+  function closeMobileMenu() {
+    document.getElementById('mobile-menu').classList.remove('open');
+    document.getElementById('hamburger').setAttribute('aria-expanded', 'false');
+  }
+
   const TOTAL_VALUE = 458; // Monthly: $149 (Jobber) + $97 (GHL/AI agent) + $110 (Grade.us) + $20 (Twilio) + $20 (HubSpot) + $12 (Calendly) + $50 (Transifex)
   const OUR_PRICE = 99;
   const SAVINGS = TOTAL_VALUE - OUR_PRICE;
