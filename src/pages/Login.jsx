@@ -83,7 +83,10 @@ export default function Login() {
     setLoading(true)
     setError(null)
 
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim() })
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: 'https://timelyops.com/login' },
+    })
 
     if (error) {
       setError(friendlyError(error.message))
