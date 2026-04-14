@@ -114,12 +114,17 @@
     .mobile-menu a:hover { color: var(--teal); background: var(--teal-light); }
     .mobile-menu .mobile-login { color: var(--text); font-weight: 600; }
     .mobile-menu .mobile-cta { color: var(--teal); font-weight: 600; }
+    .nav-cta-mobile { display: none; }
     @media (max-width: 640px) {
       .nav-links { display: flex; gap: 8px; }
       .nav-links > a:not(.nav-login):not(.nav-cta) { display: none; }
-      .nav-login { padding: 7px 12px; font-size: 13px; }
-      .nav-cta { padding: 7px 12px; font-size: 13px; }
+      .nav-login { padding: 6px 12px; font-size: 13px; line-height: 1; white-space: nowrap; }
+      .nav-cta { padding: 6px 12px; font-size: 13px; line-height: 1; white-space: nowrap; }
+      .nav-cta-desktop { display: none; }
+      .nav-cta-mobile { display: inline; }
       .nav-hamburger { display: flex; align-items: center; }
+      .nav-logo { font-size: 17px; }
+      .nav-logo .logo-icon { width: 26px; height: 26px; font-size: 12px; }
     }
 
     /* ─── HERO ─── */
@@ -481,7 +486,7 @@
       <a href="#how">How it works</a>
       <a href="#compare">Compare</a>
       <a href="/login" class="nav-login">Log in</a>
-      <a href="mailto:info@timelyops.com" class="nav-cta">Get started →</a>
+      <a href="mailto:info@timelyops.com" class="nav-cta"><span class="nav-cta-desktop">Get started →</span><span class="nav-cta-mobile">Start</span></a>
     </div>
     <button class="nav-hamburger" onclick="toggleMobileMenu()" aria-label="Open menu" aria-expanded="false" id="hamburger">
       <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
