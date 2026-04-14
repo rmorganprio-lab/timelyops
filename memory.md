@@ -1,6 +1,6 @@
 # TimelyOps — Project Status Board
 
-Last updated: 2026-04-14 (magic link emailRedirectTo fix; landing page Log in button added to nav)
+Last updated: 2026-04-14 (landing page value stack: Grade.us row removed, totals updated)
 
 ---
 
@@ -203,7 +203,7 @@ Deleting an invoice NULLs: `payments.invoice_id`, `jobs.invoice_id`
 ## Landing page notes (public/landing.html)
 - Fully static HTML — no React, no build step
 - **Section order:** announcement banner → nav → hero → value stack (animated) → stats → problem → how it works → comparison table → pricing → testimonial → final CTA → footer
-- **Value stack:** 9 rows animate in on scroll via IntersectionObserver; running total counts up to $458/mo; price reveal card fades in after; savings = $458 − $99 = $359/mo ($4,308/yr); 78% savings callout
+- **Value stack:** 8 rows animate in on scroll via IntersectionObserver (Grade.us row removed 2026-04-14); running total counts up to $348/mo; price reveal card fades in after; savings = $348 − $99 = $249/mo ($2,988/yr); 72% savings callout. `TOTAL_VALUE = 348` in JS script. Items: Jobber $149 + GHL $97 + Twilio $20 + HubSpot $20 + Calendly $12 + Transifex $50.
 - **Comparison table:** TimelyOps vs Jobber vs Housecall Pro vs ZenMaid
 - **Testimonial:** `"You can tell TimelyOps was made for how cleaning businesses work." — Owner · Residential Cleaning, Sunnyvale, California`
 - **Founding spots counter:** Fetches live from `founding-spots` Edge Function; falls back to "8 of 10" if fetch fails or function not deployed
@@ -307,7 +307,7 @@ Fully rewritten 2026-04-09 for cleaning-business-only positioning using a **Gran
 1. Announcement banner
 2. Nav (sticky, blur backdrop) — links to `#value`, `#how`, `#compare`
 3. Hero — "Get started free" CTA (mailto)
-4. Value stack (`id="value"`) — 9 rows animate in on scroll via IntersectionObserver; running total counts to $458/mo; price reveal card fades in ($99/mo, 78% savings = $359/mo)
+4. Value stack (`id="value"`) — 8 rows animate in on scroll via IntersectionObserver; running total counts to $348/mo; price reveal card fades in ($99/mo, 72% savings = $249/mo)
 5. Stats bar
 6. Problem — "Sound familiar?" — 3 pain-point cards
 7. How it works (`id="how"`) — 6-step pipeline
